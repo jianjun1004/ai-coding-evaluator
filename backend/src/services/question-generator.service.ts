@@ -7,10 +7,23 @@ export class QuestionGeneratorService {
   private openai: OpenAI;
 
   constructor() {
+    // 验证API密钥配置
+    this.validateApiKey();
+    
     this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      baseURL: process.env.OPENAI_API_BASE
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1'
     });
+  }
+
+  /**
+   * 验证API密钥配置
+   */
+  private validateApiKey(): void {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey || apiKey === 'your_openrouter_api_key_here') {
+      throw new Error('OpenRouter API密钥未配置。请在.env文件中设置OPENROUTER_API_KEY');
+    }
   }
 
   /**
@@ -19,17 +32,16 @@ export class QuestionGeneratorService {
   async generateInitialQuestion(
     profile: UserProfile,
     language: ProgrammingLanguage,
-    questionType: QuestionType
-  ): Promise<Question> {
+    questionType: string
+  ): Promise<Question[]> {
     try {
       const prompt = this.buildInitialQuestionPrompt(profile, language, questionType);
-      
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'deepseek/deepseek-chat-v3-0324:free',
         messages: [
           {
             role: 'system',
-            content: '你是一个专业的编程教育专家，擅长根据不同用户画像和编程语言生成高质量的编程问题。'
+            content: '画像是你的角色，根据画像和编程语言生成10个出现在开发工作中常见的问题。'
           },
           {
             role: 'user',
@@ -45,29 +57,23 @@ export class QuestionGeneratorService {
         throw new Error('Failed to generate question content');
       }
 
-      const question: Question = {
-        id: uuidv4(),
-        content: questionContent,
-        type: questionType,
-        context: {
-          userProfile: profile.name,
-          programmingLanguage: language.name
-        },
-        followUpLevel: 0,
-        createdAt: new Date()
-      };
-
-      log.info('Generated initial question', {
-        questionId: question.id,
-        type: questionType,
-        profile: profile.name,
-        language: language.name
-      });
-
-      return question;
-    } catch (error) {
+      // 将包含多个问题的字符串拆分成数组
+      const questions = this.parseQuestionsFromContent(questionContent, questionType, profile, language);
+      
+      return questions;
+    } catch (error: any) {
       log.error('Failed to generate initial question', { error, profile: profile.name, language: language.name });
-      throw error;
+      
+      // 提供更详细的错误信息
+      if (error?.status === 401) {
+        throw new Error('OpenRouter API认证失败。请检查API密钥是否正确配置');
+      } else if (error?.status === 429) {
+        throw new Error('API请求频率过高，请稍后重试');
+      } else if (error?.status === 500) {
+        throw new Error('OpenRouter服务暂时不可用，请稍后重试');
+      } else {
+        throw new Error(`生成问题失败: ${error?.message || '未知错误'}`);
+      }
     }
   }
 
@@ -95,7 +101,7 @@ export class QuestionGeneratorService {
       const prompt = this.buildFollowUpPrompt(originalQuestion, aiResponse, followUpCount, context);
       
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'deepseek/deepseek-chat-v3-0324:free',
         messages: [
           {
             role: 'system',
@@ -146,22 +152,14 @@ export class QuestionGeneratorService {
   private buildInitialQuestionPrompt(
     profile: UserProfile,
     language: ProgrammingLanguage,
-    questionType: QuestionType
+    questionType: string
   ): string {
-    const profileContext = `用户画像：${profile.name} - ${profile.description}
+    const profileContext = `用户画像：${profile.name}
 用户特征：${profile.characteristics.join('、')}`;
 
-    const languageContext = `编程语言：${language.name} - ${language.description}
+    const languageContext = `编程语言：${language.name}
 常见问题领域：${language.commonIssues.join('、')}
 学习主题：${language.learningTopics.join('、')}`;
-
-    const questionTypeMap = {
-      [QuestionType.LEARNING]: '学习编程',
-      [QuestionType.PROJECT]: '项目开发',
-      [QuestionType.DEBUGGING]: '调试问题',
-      [QuestionType.BEST_PRACTICES]: '最佳实践',
-      [QuestionType.PERFORMANCE]: '性能优化'
-    };
 
     return `请根据以下信息生成一个高质量的编程问题：
 
@@ -169,7 +167,7 @@ ${profileContext}
 
 ${languageContext}
 
-问题类型：${questionTypeMap[questionType]}
+问题类型：${questionType}
 
 要求：
 1. 问题应该符合用户画像的特点和需求
@@ -236,7 +234,7 @@ AI回答：${aiResponse}
 请回答"需要追问"或"无需追问"，并简要说明理由。`;
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'deepseek/deepseek-chat-v3-0324:free',
         messages: [
           {
             role: 'system',
@@ -261,24 +259,85 @@ AI回答：${aiResponse}
   }
 
   /**
+   * 解析包含多个问题的内容字符串，拆分成独立的问题对象数组
+   */
+  private parseQuestionsFromContent(
+    content: string, 
+    questionType: string, 
+    profile: UserProfile, 
+    language: ProgrammingLanguage
+  ): Question[] {
+    const questions: Question[] = [];
+    
+    // 使用正则表达式匹配所有数字编号的问题
+    const questionRegex = /(\d+\.\s+)([^]*?)(?=\d+\.\s+|$)/g;
+    let match;
+    
+    while ((match = questionRegex.exec(content)) !== null) {
+      const questionContent = match[2].trim();
+      if (questionContent.length > 0) {
+        const question: Question = {
+          id: uuidv4(),
+          content: questionContent,
+          type: questionType,
+          context: {
+            userProfile: profile.name,
+            programmingLanguage: language.name
+          },
+          followUpLevel: 0,
+          createdAt: new Date()
+        };
+        questions.push(question);
+      }
+    }
+    
+    // 如果没有通过正则匹配成功，尝试其他分割方式
+    if (questions.length === 0) {
+      // 尝试按换行符分割
+      const lines = content.split('\n').filter(line => line.trim().length > 0);
+      lines.forEach((line, index) => {
+        const trimmedLine = line.trim();
+        if (trimmedLine.length > 0) {
+          const question: Question = {
+            id: uuidv4(),
+            content: trimmedLine,
+            type: questionType,
+            context: {
+              userProfile: profile.name,
+              programmingLanguage: language.name
+            },
+            followUpLevel: 0,
+            createdAt: new Date()
+          };
+          questions.push(question);
+        }
+      });
+    }
+    
+    console.log('questions==========》1', questions)  
+    
+    return questions;
+  }
+
+  /**
    * 根据问题内容推断问题类型
    */
-  private inferQuestionType(questionContent: string): QuestionType {
+  private inferQuestionType(questionContent: string): string {
     const content = questionContent.toLowerCase();
     
     if (content.includes('学习') || content.includes('入门') || content.includes('基础')) {
-      return QuestionType.LEARNING;
+      return 'learning';
     } else if (content.includes('项目') || content.includes('开发') || content.includes('实现')) {
-      return QuestionType.PROJECT;
+      return 'project';
     } else if (content.includes('错误') || content.includes('调试') || content.includes('问题')) {
-      return QuestionType.DEBUGGING;
+      return 'debugging';
     } else if (content.includes('最佳') || content.includes('规范') || content.includes('建议')) {
-      return QuestionType.BEST_PRACTICES;
+      return 'best_practices';
     } else if (content.includes('性能') || content.includes('优化') || content.includes('效率')) {
-      return QuestionType.PERFORMANCE;
+      return 'performance';
     }
     
-    return QuestionType.LEARNING; // 默认类型
+    return 'learning'; // 默认类型
   }
 
   /**
@@ -287,25 +346,29 @@ AI回答：${aiResponse}
   async generateQuestionBatch(
     profile: UserProfile,
     language: ProgrammingLanguage,
-    questionTypes: QuestionType[],
+    questionTypes: string[],
     count: number = 1
   ): Promise<Question[]> {
     const questions: Question[] = [];
     
     for (const questionType of questionTypes) {
-      for (let i = 0; i < count; i++) {
-        try {
-          const question = await this.generateInitialQuestion(profile, language, questionType);
-          questions.push(question);
-          
-          // 添加延迟以避免API限流
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        } catch (error) {
-          log.error('Failed to generate question in batch', { error, questionType, index: i });
+      try {
+        const questionArray = await this.generateInitialQuestion(profile, language, questionType);
+        
+        // 将返回的问题数组添加到总数组中
+        questions.push(...questionArray);
+        
+        // 添加延迟以避免API限流
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        log.error('Failed to generate question in batch', { error, questionType});
+        // 如果是认证错误，直接抛出，避免继续尝试
+        if (error?.status === 401) {
+          throw new Error('OpenRouter API认证失败。请检查API密钥是否正确配置');
         }
       }
     }
-    
+    console.log('generateQuestionBatch 最终返回问题数量:', questions.length);
     return questions;
   }
 }

@@ -1,9 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { 
-  LayoutDashboard, 
-  ListTodo, 
   Plus, 
-  Settings, 
   ChevronLeft,
   ChevronRight,
   Bot,
@@ -13,10 +10,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 const navigation = [
-  { name: '仪表板', href: '/', icon: LayoutDashboard },
-  { name: '任务列表', href: '/tasks', icon: ListTodo },
-  { name: '新建任务', href: '/tasks/new', icon: Plus },
-  { name: '设置', href: '/settings', icon: Settings },
+  { name: '任务创建', href: '/tasks/new', icon: Plus },
 ]
 
 export default function Sidebar({ open, setOpen }) {

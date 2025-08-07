@@ -1,23 +1,21 @@
 import { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { APIResponse, EvaluationTask, TaskStatus, QuestionType } from '../models';
+import { AI_PRODUCTS, processCustomUserProfile, processCustomProgrammingLanguage } from '../config/ai-products';
+import { QuestionGeneratorService } from '../services/question-generator.service';
 import { TaskSchedulerService } from '../services/task-scheduler.service';
-import { Database } from '../config/database';
-import { 
-  EvaluationTask, 
-  TaskStatus, 
-  QuestionType, 
-  APIResponse 
-} from '../models';
-import { getUserProfiles, getProgrammingLanguages, AI_PRODUCTS } from '../config/ai-products';
+import { MemoryStorageService } from '../services/memory-storage.service';
 import { log } from '../utils/logger';
 
 export class TaskController {
-  private taskScheduler: TaskSchedulerService;
-  private database: Database;
+  private questionGeneratorService: QuestionGeneratorService;
+  private taskSchedulerService: TaskSchedulerService;
+  private memoryStorage: MemoryStorageService;
 
   constructor() {
-    this.taskScheduler = new TaskSchedulerService();
-    this.database = Database.getInstance();
+    this.questionGeneratorService = new QuestionGeneratorService();
+    this.taskSchedulerService = new TaskSchedulerService();
+    this.memoryStorage = MemoryStorageService.getInstance();
   }
 
   /**
@@ -27,37 +25,29 @@ export class TaskController {
     try {
       const { page = 1, pageSize = 10, status } = req.query;
       
-      let sql = 'SELECT * FROM evaluation_tasks';
-      const params: any[] = [];
-      
-      if (status) {
-        sql += ' WHERE status = ?';
-        params.push(status);
-      }
-      
-      sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-      params.push(Number(pageSize), (Number(page) - 1) * Number(pageSize));
-      
-      const tasks = await this.database.all(sql, params);
-      
-      // 获取总数
-      let countSql = 'SELECT COUNT(*) as total FROM evaluation_tasks';
-      if (status) {
-        countSql += ' WHERE status = ?';
-      }
-      const countResult = await this.database.get(countSql, status ? [status] : []);
+      const result = await this.memoryStorage.getTasks(
+        Number(page), 
+        Number(pageSize), 
+        status as string
+      );
       
       const response: APIResponse<any[]> = {
         success: true,
-        data: tasks.map(task => ({
-          ...task,
-          user_profile: JSON.parse(task.user_profile_id),
-          programming_language: JSON.parse(task.programming_language_id),
-          ai_products: JSON.parse(task.ai_products),
-          question_types: JSON.parse(task.question_types)
+        data: result.tasks.map(task => ({
+          id: task.id,
+          name: task.name,
+          description: task.description || '',
+          user_profile: task.userProfile,
+          programming_language: task.programmingLanguage,
+          ai_products: task.aiProducts,
+          question_types: task.questionTypes,
+          max_follow_ups: task.maxFollowUps,
+          status: task.status,
+          created_at: task.createdAt,
+          updated_at: task.updatedAt
         })),
         meta: {
-          total: countResult.total,
+          total: result.total,
           page: Number(page),
           pageSize: Number(pageSize)
         }
@@ -85,10 +75,7 @@ export class TaskController {
     try {
       const { id } = req.params;
       
-      const task = await this.database.get(
-        'SELECT * FROM evaluation_tasks WHERE id = ?',
-        [id]
-      );
+      const task = await this.memoryStorage.getTask(id);
       
       if (!task) {
         const response: APIResponse<null> = {
@@ -103,23 +90,32 @@ export class TaskController {
       }
       
       // 获取相关会话
-      const sessions = await this.database.all(
-        'SELECT * FROM evaluation_sessions WHERE task_id = ?',
-        [id]
-      );
+      const sessions = await this.memoryStorage.getSessionsByTask(id);
       
       const response: APIResponse<any> = {
         success: true,
         data: {
-          ...task,
-          user_profile: JSON.parse(task.user_profile_id),
-          programming_language: JSON.parse(task.programming_language_id),
-          ai_products: JSON.parse(task.ai_products),
-          question_types: JSON.parse(task.question_types),
+          id: task.id,
+          name: task.name,
+          description: task.description || '',
+          user_profile: task.userProfile,
+          programming_language: task.programmingLanguage,
+          ai_products: task.aiProducts,
+          question_types: task.questionTypes,
+          max_follow_ups: task.maxFollowUps,
+          status: task.status,
+          created_at: task.createdAt,
+          updated_at: task.updatedAt,
           sessions: sessions.map(session => ({
-            ...session,
-            user_profile: JSON.parse(session.user_profile),
-            programming_language: JSON.parse(session.programming_language)
+            id: session.id,
+            task_id: session.taskId,
+            product_id: session.productId,
+            user_profile: session.userProfile,
+            programming_language: session.programmingLanguage,
+            status: session.status,
+            start_time: session.startTime,
+            end_time: session.endTime,
+            created_at: session.startTime
           }))
         }
       };
@@ -147,15 +143,16 @@ export class TaskController {
       const {
         name,
         description,
-        userProfileId,
-        programmingLanguageId,
         aiProductIds,
         questionTypes,
-        maxFollowUps = 3
+        maxFollowUps = 3,
+        // 自定义输入
+        customUserProfile,
+        customProgrammingLanguage
       } = req.body;
-
+      console.log('========',req.body)
       // 验证输入
-      if (!name || !userProfileId || !programmingLanguageId || !aiProductIds || !questionTypes) {
+      if (!name || !aiProductIds || !questionTypes) {
         const response: APIResponse<null> = {
           success: false,
           error: {
@@ -167,24 +164,37 @@ export class TaskController {
         return;
       }
 
-      // 获取用户画像和编程语言
-      const userProfiles = getUserProfiles();
-      const programmingLanguages = getProgrammingLanguages();
-      
-      const userProfile = userProfiles.find(p => p.id === userProfileId);
-      const programmingLanguage = programmingLanguages.find(l => l.id === programmingLanguageId);
-      
-      if (!userProfile || !programmingLanguage) {
+      // 验证自定义用户画像
+      if (!customUserProfile || !customUserProfile.name || !customUserProfile.name.trim()) {
         const response: APIResponse<null> = {
           success: false,
           error: {
-            code: 'INVALID_PROFILE_OR_LANGUAGE',
-            message: 'Invalid user profile or programming language'
+            code: 'INVALID_USER_PROFILE',
+            message: 'Custom user profile name is required'
           }
         };
         res.status(400).json(response);
         return;
       }
+
+      // 验证自定义编程语言
+      if (!customProgrammingLanguage || !customProgrammingLanguage.name || !customProgrammingLanguage.name.trim()) {
+        const response: APIResponse<null> = {
+          success: false,
+          error: {
+            code: 'INVALID_PROGRAMMING_LANGUAGE',
+            message: 'Custom programming language name is required'
+          }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // 处理自定义用户画像
+      const userProfile = processCustomUserProfile(customUserProfile);
+
+      // 处理自定义编程语言
+      const programmingLanguage = processCustomProgrammingLanguage(customProgrammingLanguage);
 
       // 获取AI产品
       const aiProducts = AI_PRODUCTS.filter(p => aiProductIds.includes(p.id));
@@ -200,43 +210,40 @@ export class TaskController {
         return;
       }
 
-      const taskId = uuidv4();
+      const taskId = this.memoryStorage.generateId();
       const task: EvaluationTask = {
         id: taskId,
         name,
         description: description || '',
-        userProfile: userProfile as any, // 临时类型断言，实际使用时需要确保类型匹配
-        programmingLanguage,
+        userProfile: userProfile,
+        programmingLanguage: programmingLanguage,
         aiProducts,
-        questionTypes: questionTypes.map((type: string) => type as QuestionType),
+        questionTypes: questionTypes,
         maxFollowUps,
         status: TaskStatus.PENDING,
         createdAt: new Date(),
         updatedAt: new Date()
       };
 
-      // 保存到数据库
-      await this.database.run(`
-        INSERT INTO evaluation_tasks 
-        (id, name, description, user_profile_id, programming_language_id, ai_products, question_types, max_follow_ups, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        task.id,
-        task.name,
-        task.description,
-        JSON.stringify(task.userProfile),
-        JSON.stringify(task.programmingLanguage),
-        JSON.stringify(task.aiProducts),
-        JSON.stringify(task.questionTypes),
-        task.maxFollowUps,
-        task.status
-      ]);
+      // 生成初始问题（为每个问题类型生成一个问题）
+      const initialQuestions = [];
+      for (const questionType of questionTypes) {
+        const question = await this.questionGeneratorService.generateInitialQuestion(
+          userProfile,
+          programmingLanguage,
+          questionType as QuestionType
+        );
+        initialQuestions.push(question);
+      }
+
+      // 保存任务到内存存储
+      await this.memoryStorage.createTask(task);
 
       const response: APIResponse<EvaluationTask> = {
         success: true,
         data: task
       };
-      
+
       res.status(201).json(response);
     } catch (error: any) {
       log.error('Failed to create task', { error });
@@ -253,59 +260,51 @@ export class TaskController {
   }
 
   /**
-   * 执行任务
+   * 执行任务 - 简化版本，不需要ID
    */
   async executeTask(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
+      // 从请求体获取任务数据
+      const taskData = req.body;
       
-      // 获取任务
-      const taskRow = await this.database.get(
-        'SELECT * FROM evaluation_tasks WHERE id = ?',
-        [id]
-      );
-      
-      if (!taskRow) {
+      // 验证必要字段
+      if (!taskData.name || !taskData.aiProductIds || !taskData.questionTypes) {
         const response: APIResponse<null> = {
           success: false,
           error: {
-            code: 'TASK_NOT_FOUND',
-            message: 'Task not found'
+            code: 'INVALID_INPUT',
+            message: 'Missing required fields: name, aiProductIds, questionTypes'
           }
         };
-        res.status(404).json(response);
+        res.status(400).json(response);
         return;
       }
 
-      const task: EvaluationTask = {
-        id: taskRow.id,
-        name: taskRow.name,
-        description: taskRow.description,
-        userProfile: JSON.parse(taskRow.user_profile_id),
-        programmingLanguage: JSON.parse(taskRow.programming_language_id),
-        aiProducts: JSON.parse(taskRow.ai_products),
-        questionTypes: JSON.parse(taskRow.question_types),
-        maxFollowUps: taskRow.max_follow_ups,
-        status: taskRow.status as TaskStatus,
-        createdAt: new Date(taskRow.created_at),
-        updatedAt: new Date(taskRow.updated_at)
+      // 创建任务对象
+      const task = {
+        id: 'current-task',
+        ...taskData,
+        status: 'RUNNING',
+        createdAt: new Date(),
+        updatedAt: new Date()
       };
 
       // 异步执行任务
-      this.taskScheduler.executeEvaluationTask(task).catch(error => {
-        log.error('Task execution failed', { taskId: id, error });
+      this.taskSchedulerService.executeEvaluationTask(task).catch(error => {
+        log.error('Task execution failed', { error });
       });
 
-      const response: APIResponse<{ message: string }> = {
+      const response: APIResponse<{ message: string; taskId: string }> = {
         success: true,
         data: {
-          message: 'Task execution started'
+          message: 'Task execution started',
+          taskId: 'current-task'
         }
       };
       
       res.json(response);
     } catch (error: any) {
-      log.error('Failed to execute task', { taskId: req.params.id, error });
+      log.error('Failed to execute task', { error });
       const response: APIResponse<null> = {
         success: false,
         error: {
@@ -319,22 +318,21 @@ export class TaskController {
   }
 
   /**
-   * 获取任务进度
+   * 获取任务进度 - 简化版本，不需要ID
    */
   async getTaskProgress(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
-      
-      const progress = this.taskScheduler.getTaskProgress(id);
+      // 获取当前任务的进度
+      const progress = this.taskSchedulerService.getTaskProgress('current-task');
       
       const response: APIResponse<any> = {
         success: true,
-        data: progress
+        data: progress || { status: 'NO_TASK_RUNNING' }
       };
       
       res.json(response);
     } catch (error: any) {
-      log.error('Failed to get task progress', { taskId: req.params.id, error });
+      log.error('Failed to get task progress', { error });
       const response: APIResponse<null> = {
         success: false,
         error: {
@@ -348,13 +346,12 @@ export class TaskController {
   }
 
   /**
-   * 取消任务
+   * 取消任务 - 简化版本，不需要ID
    */
   async cancelTask(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
-      
-      await this.taskScheduler.cancelTask(id);
+      // 取消当前任务
+      await this.taskSchedulerService.cancelTask('current-task');
       
       const response: APIResponse<{ message: string }> = {
         success: true,
@@ -365,7 +362,7 @@ export class TaskController {
       
       res.json(response);
     } catch (error: any) {
-      log.error('Failed to cancel task', { taskId: req.params.id, error });
+      log.error('Failed to cancel task', { error });
       const response: APIResponse<null> = {
         success: false,
         error: {
@@ -386,10 +383,7 @@ export class TaskController {
       const { id } = req.params;
       
       // 检查任务是否存在
-      const task = await this.database.get(
-        'SELECT * FROM evaluation_tasks WHERE id = ?',
-        [id]
-      );
+      const task = await this.memoryStorage.getTask(id);
       
       if (!task) {
         const response: APIResponse<null> = {
@@ -405,23 +399,22 @@ export class TaskController {
 
       // 如果任务正在运行，先取消
       if (task.status === TaskStatus.RUNNING) {
-        await this.taskScheduler.cancelTask(id);
+        await this.taskSchedulerService.cancelTask(id);
       }
 
-      // 删除相关数据
-      await this.database.beginTransaction();
-      
-      try {
-        await this.database.run('DELETE FROM scoring_results WHERE response_id IN (SELECT id FROM ai_responses WHERE question_id IN (SELECT id FROM questions WHERE session_id IN (SELECT id FROM evaluation_sessions WHERE task_id = ?)))', [id]);
-        await this.database.run('DELETE FROM ai_responses WHERE question_id IN (SELECT id FROM questions WHERE session_id IN (SELECT id FROM evaluation_sessions WHERE task_id = ?))', [id]);
-        await this.database.run('DELETE FROM questions WHERE session_id IN (SELECT id FROM evaluation_sessions WHERE task_id = ?)', [id]);
-        await this.database.run('DELETE FROM evaluation_sessions WHERE task_id = ?', [id]);
-        await this.database.run('DELETE FROM evaluation_tasks WHERE id = ?', [id]);
-        
-        await this.database.commit();
-      } catch (error) {
-        await this.database.rollback();
-        throw error;
+      // 删除任务及相关数据
+      const deleted = await this.memoryStorage.deleteTask(id);
+
+      if (!deleted) {
+        const response: APIResponse<null> = {
+          success: false,
+          error: {
+            code: 'DELETE_TASK_ERROR',
+            message: 'Failed to delete task'
+          }
+        };
+        res.status(500).json(response);
+        return;
       }
 
       const response: APIResponse<{ message: string }> = {
@@ -451,7 +444,7 @@ export class TaskController {
    */
   async getRunningTasks(req: Request, res: Response): Promise<void> {
     try {
-      const runningTasks = this.taskScheduler.getRunningTasks();
+      const runningTasks = this.taskSchedulerService.getRunningTasks();
       
       const response: APIResponse<any[]> = {
         success: true,
@@ -470,6 +463,125 @@ export class TaskController {
         }
       };
       res.status(500).json(response);
+    }
+  }
+
+  /**
+   * 生成问题
+   */
+  async generateQuestions(req: Request, res: Response): Promise<void> {
+    try {
+      // 调试：打印请求信息
+      log.info('generateQuestions called', { 
+        method: req.method, 
+        url: req.url, 
+        body: req.body,
+        headers: req.headers
+      });
+
+      const {
+        questionTypes,
+        count = 10,
+        // 自定义输入
+        customUserProfile,
+        customProgrammingLanguage
+      } = req.body;
+      // 验证输入
+      if (!questionTypes || !Array.isArray(questionTypes) || questionTypes.length === 0) {
+        const response: APIResponse<null> = {
+          success: false,
+          error: {
+            code: 'INVALID_INPUT',
+            message: 'Missing or invalid questionTypes'
+          }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // 验证自定义用户画像
+      if (!customUserProfile || !customUserProfile.name || !customUserProfile.name.trim()) {
+        const response: APIResponse<null> = {
+          success: false,
+          error: {
+            code: 'INVALID_USER_PROFILE',
+            message: 'Custom user profile name is required'
+          }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // 验证自定义编程语言
+      if (!customProgrammingLanguage || !customProgrammingLanguage.name || !customProgrammingLanguage.name.trim()) {
+        const response: APIResponse<null> = {
+          success: false,
+          error: {
+            code: 'INVALID_PROGRAMMING_LANGUAGE',
+            message: 'Custom programming language name is required'
+          }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // 处理自定义用户画像
+      const userProfile = processCustomUserProfile(customUserProfile);
+
+      // 处理自定义编程语言
+      const programmingLanguage = processCustomProgrammingLanguage(customProgrammingLanguage);
+
+      // 生成问题
+      const questions = await this.questionGeneratorService.generateQuestionBatch(
+        userProfile,
+        programmingLanguage,
+        questionTypes,
+      );
+
+      console.log('questions==========》2', questions)
+      const response: APIResponse<any[]> = {
+        success: true,
+        data: questions.map(question => ({
+          id: question.id,
+          content: question.content,
+          type: question.type,
+          isGenerated: true,
+          context: question.context
+        }))
+      };
+      console.log('返回给前端的问题数量:', response.data?.length || 0);
+      res.json(response);
+    } catch (error: any) {
+      log.error('Failed to generate questions', { error });
+      
+      // 根据错误类型返回相应的状态码
+      let statusCode = 500;
+      let errorCode = 'GENERATE_QUESTIONS_ERROR';
+      let errorMessage = 'Failed to generate questions';
+      
+      if (error?.message?.includes('API认证失败')) {
+        statusCode = 401;
+        errorCode = 'API_AUTH_ERROR';
+        errorMessage = 'API认证失败，请检查配置';
+      } else if (error?.message?.includes('请求频率过高')) {
+        statusCode = 429;
+        errorCode = 'RATE_LIMIT_ERROR';
+        errorMessage = '请求频率过高，请稍后重试';
+      } else if (error?.message?.includes('服务暂时不可用')) {
+        statusCode = 503;
+        errorCode = 'SERVICE_UNAVAILABLE';
+        errorMessage = '服务暂时不可用，请稍后重试';
+      }
+      
+      const response: APIResponse<null> = {
+        success: false,
+        error: {
+          code: errorCode,
+          message: errorMessage,
+          details: error?.message || 'Unknown error'
+        }
+      };
+      res.status(statusCode).json(response);
     }
   }
 }

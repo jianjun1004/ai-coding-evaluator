@@ -2,11 +2,7 @@ import { useState } from 'react'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
 import Sidebar from '@/components/Sidebar'
-import Dashboard from '@/components/Dashboard'
 import TaskConfig from '@/components/TaskConfig'
-import TaskList from '@/components/TaskList'
-import TaskDetail from '@/components/TaskDetail'
-import Settings from '@/components/Settings'
 import './App.css'
 
 function App() {
@@ -22,11 +18,8 @@ function App() {
         }`}>
           <main className="flex-1 overflow-y-auto p-6">
             <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/tasks" element={<TaskList />} />
+              <Route path="/" element={<TaskConfig />} />
               <Route path="/tasks/new" element={<TaskConfig />} />
-              <Route path="/tasks/:id" element={<TaskDetail />} />
-              <Route path="/settings" element={<Settings />} />
             </Routes>
           </main>
         </div>

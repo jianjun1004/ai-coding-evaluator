@@ -15,8 +15,8 @@ export class ScoringEngineService {
 
   constructor() {
     this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      baseURL: process.env.OPENAI_API_BASE
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1'
     });
   }
 
@@ -80,7 +80,7 @@ export class ScoringEngineService {
       const analysisPrompt = this.buildAnalysisPrompt(question, response, context);
       
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'deepseek/deepseek-chat-v3-0324:free',
         messages: [
           {
             role: 'system',
@@ -130,7 +130,7 @@ export class ScoringEngineService {
     return `请分析以下AI编程助手的回答质量：
 
 **用户背景：**
-- 用户画像：${context.userProfile.name} - ${context.userProfile.description}
+- 用户画像：${context.userProfile.name}
 - 编程语言：${context.programmingLanguage.name}
 - 问题类型：${context.questionType}
 
@@ -311,7 +311,7 @@ ${response}
 - 避免空泛的表述`;
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'deepseek/deepseek-chat-v3-0324:free',
         messages: [
           {
             role: 'system',

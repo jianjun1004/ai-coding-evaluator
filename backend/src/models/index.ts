@@ -1,9 +1,8 @@
-// 数据模型定义
+// 数据模型定义 - 简化版本，移除数据库相关字段
 
 export interface UserProfile {
   id: string;
   name: string;
-  description: string;
   characteristics: string[];
   questionTemplates: QuestionTemplate[];
 }
@@ -17,7 +16,6 @@ export interface QuestionTemplate {
 export interface ProgrammingLanguage {
   id: string;
   name: string;
-  description: string;
   commonIssues: string[];
   learningTopics: string[];
 }
@@ -50,7 +48,7 @@ export interface AIProduct {
 export interface EvaluationTask {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   userProfile: UserProfile;
   programmingLanguage: ProgrammingLanguage;
   aiProducts: AIProduct[];
@@ -78,7 +76,7 @@ export interface EvaluationSession {
 export interface Question {
   id: string;
   content: string;
-  type: QuestionType;
+  type: string; // 改为直接使用字符串类型
   context: QuestionContext;
   followUpLevel: number;
   parentQuestionId?: string;
@@ -141,13 +139,8 @@ export interface ResponseAnalysis {
 }
 
 // 枚举类型
-export enum QuestionType {
-  LEARNING = 'learning',
-  PROJECT = 'project',
-  DEBUGGING = 'debugging',
-  BEST_PRACTICES = 'best_practices',
-  PERFORMANCE = 'performance'
-}
+// 问题类型现在使用字符串，支持任意自定义类型
+export type QuestionType = string;
 
 export enum TaskStatus {
   PENDING = 'pending',

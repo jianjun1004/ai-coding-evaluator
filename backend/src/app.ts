@@ -14,15 +14,12 @@ import configRoutes from './routes/config.routes';
 
 // 工具导入
 import { log } from './utils/logger';
-import { Database } from './config/database';
 
 class App {
   public app: express.Application;
-  private database: Database;
 
   constructor() {
     this.app = express();
-    this.database = Database.getInstance();
     
     this.initializeMiddlewares();
     this.initializeRoutes();
@@ -45,6 +42,7 @@ class App {
     this.app.use(morgan('combined', {
       stream: {
         write: (message: string) => {
+          console.log('--------')
           log.info(message.trim());
         }
       }
@@ -133,8 +131,8 @@ class App {
 
   public async start(port: number = 3000): Promise<void> {
     try {
-      // 初始化数据库
-      await this.initializeDatabase();
+      // 验证环境配置
+      this.validateEnvironment();
       
       // 启动服务器
       this.app.listen(port, '0.0.0.0', () => {
@@ -149,19 +147,30 @@ class App {
     }
   }
 
-  private async initializeDatabase(): Promise<void> {
-    try {
-      // 数据库已经在构造函数中初始化
-      log.info('Database initialized successfully');
-    } catch (error) {
-      log.error('Failed to initialize database', { error });
-      throw error;
+  /**
+   * 验证环境配置
+   */
+  private validateEnvironment(): void {
+    const requiredEnvVars = [
+      'OPENROUTER_API_KEY'
+    ];
+
+    const missingVars = requiredEnvVars.filter(varName => {
+      const value = process.env[varName];
+      return !value || value === 'your_openrouter_api_key_here';
+    });
+
+    if (missingVars.length > 0) {
+      const errorMessage = `缺少必要的环境变量: ${missingVars.join(', ')}。请检查.env文件配置。`;
+      log.error('Environment validation failed', { missingVars });
+      throw new Error(errorMessage);
     }
+
+    log.info('Environment validation passed');
   }
 
   public async shutdown(): Promise<void> {
     try {
-      await this.database.close();
       log.info('Server shutdown completed');
     } catch (error) {
       log.error('Error during shutdown', { error });

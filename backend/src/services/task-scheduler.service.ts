@@ -15,8 +15,8 @@ import { QuestionGeneratorService } from './question-generator.service';
 import { BrowserAutomationService } from './browser-automation.service';
 import { ScoringEngineService } from './scoring-engine.service';
 import { FeishuIntegrationService } from './feishu-integration.service';
-import { Database } from '../config/database';
-import { AI_PRODUCTS, getUserProfiles, getProgrammingLanguages } from '../config/ai-products';
+import { MemoryStorageService } from './memory-storage.service';
+import { AI_PRODUCTS } from '../config/ai-products';
 import { log } from '../utils/logger';
 
 export interface TaskResult {
@@ -44,7 +44,7 @@ export class TaskSchedulerService {
   private browserAutomation: BrowserAutomationService;
   private scoringEngine: ScoringEngineService;
   private feishuIntegration: FeishuIntegrationService | null = null;
-  private database: Database;
+  private memoryStorage: MemoryStorageService;
   
   private runningTasks: Map<string, TaskProgress> = new Map();
   private scheduledTasks: Map<string, cron.ScheduledTask> = new Map();
@@ -54,7 +54,7 @@ export class TaskSchedulerService {
     this.questionGenerator = new QuestionGeneratorService();
     this.browserAutomation = new BrowserAutomationService();
     this.scoringEngine = new ScoringEngineService();
-    this.database = Database.getInstance();
+    this.memoryStorage = MemoryStorageService.getInstance();
     
     if (feishuConfig) {
       this.feishuIntegration = new FeishuIntegrationService(feishuConfig);
@@ -187,54 +187,57 @@ export class TaskSchedulerService {
    */
   private async processQuestionType(
     session: EvaluationSession,
-    questionType: QuestionType,
+    questionType: string,
     task: EvaluationTask
   ): Promise<void> {
     try {
       // 生成初始问题
-      const question = await this.questionGenerator.generateInitialQuestion(
+      const questions = await this.questionGenerator.generateInitialQuestion(
         task.userProfile,
         task.programmingLanguage,
         questionType
       );
       
-      session.questions.push(question);
-      
-      // 获取AI回答
-      const product = AI_PRODUCTS.find(p => p.id === session.productId);
-      if (!product) {
-        throw new Error(`Product not found: ${session.productId}`);
-      }
-      
-      const response = await this.browserAutomation.interactWithAIProduct(
-        product,
-        question.content
-      );
-      
-      response.questionId = question.id;
-      session.responses.push(response);
-      
-      // 处理追问
-      await this.handleFollowUps(session, question, response, task);
-      
-      // 评分
-      const scoringResult = await this.scoringEngine.scoreResponse(
-        question.content,
-        response.content,
-        {
-          userProfile: task.userProfile,
-          programmingLanguage: task.programmingLanguage,
-          questionType: questionType,
-          originalQuestion: question.content
+      // 处理生成的问题数组
+      for (const question of questions) {
+        session.questions.push(question);
+        
+        // 获取AI回答
+        const product = AI_PRODUCTS.find(p => p.id === session.productId);
+        if (!product) {
+          throw new Error(`Product not found: ${session.productId}`);
         }
-      );
-      
-      scoringResult.responseId = response.id;
-      session.scores.push(scoringResult);
-      
-      // 保存到飞书
-      if (this.feishuIntegration) {
-        await this.saveToFeishu(session, question, response, scoringResult, task);
+        
+        const response = await this.browserAutomation.interactWithAIProduct(
+          product,
+          question.content
+        );
+        
+        response.questionId = question.id;
+        session.responses.push(response);
+        
+        // 处理追问
+        await this.handleFollowUps(session, question, response, task);
+        
+        // 评分
+        const scoringResult = await this.scoringEngine.scoreResponse(
+          question.content,
+          response.content,
+          {
+            userProfile: task.userProfile,
+            programmingLanguage: task.programmingLanguage,
+            questionType: questionType,
+            originalQuestion: question.content
+          }
+        );
+        
+        scoringResult.responseId = response.id;
+        session.scores.push(scoringResult);
+        
+        // 保存到飞书
+        if (this.feishuIntegration) {
+          await this.saveToFeishu(session, question, response, scoringResult, task);
+        }
       }
       
     } catch (error: any) {
@@ -403,22 +406,7 @@ export class TaskSchedulerService {
    */
   private async saveSession(session: EvaluationSession): Promise<void> {
     try {
-      const sql = `
-        INSERT OR REPLACE INTO evaluation_sessions 
-        (id, task_id, product_id, user_profile, programming_language, status, start_time, end_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-      
-      await this.database.run(sql, [
-        session.id,
-        session.taskId,
-        session.productId,
-        JSON.stringify(session.userProfile),
-        JSON.stringify(session.programmingLanguage),
-        session.status,
-        session.startTime.toISOString(),
-        session.endTime?.toISOString() || null
-      ]);
+      await this.memoryStorage.createSession(session);
     } catch (error) {
       log.error('Failed to save session', { sessionId: session.id, error });
     }
@@ -429,13 +417,7 @@ export class TaskSchedulerService {
    */
   private async updateTaskStatus(taskId: string, status: TaskStatus): Promise<void> {
     try {
-      const sql = `
-        UPDATE evaluation_tasks 
-        SET status = ?, updated_at = CURRENT_TIMESTAMP 
-        WHERE id = ?
-      `;
-      
-      await this.database.run(sql, [status, taskId]);
+      await this.memoryStorage.updateTask(taskId, { status });
     } catch (error) {
       log.error('Failed to update task status', { taskId, status, error });
     }
