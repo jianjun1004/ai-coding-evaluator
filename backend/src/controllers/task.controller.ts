@@ -481,7 +481,6 @@ export class TaskController {
 
       const {
         questionTypes,
-        count = 10,
         // 自定义输入
         customUserProfile,
         customProgrammingLanguage

@@ -41,7 +41,7 @@ export class QuestionGeneratorService {
         messages: [
           {
             role: 'system',
-            content: '画像是你的角色，根据画像和编程语言生成10个出现在开发工作中常见的问题。'
+            content: '画像是你的角色，根据画像和编程语言生成10个出现在开发工作中常见的问题。要以开发者实际工作中的问题为主，不要生成过于偏理论的问题，不要看起来像面试题。'
           },
           {
             role: 'user',
@@ -147,37 +147,36 @@ export class QuestionGeneratorService {
   }
 
   /**
-   * 构建初始问题生成的提示词
+   * 构建初始问题生成的提示词(请根据以下信息生成一个向AI编程助手提问的问题，贴近日常开发工作，不要生成过于偏理论的问题，不要看起来像面试题)
    */
   private buildInitialQuestionPrompt(
     profile: UserProfile,
     language: ProgrammingLanguage,
     questionType: string
   ): string {
-    const profileContext = `用户画像：${profile.name}
-用户特征：${profile.characteristics.join('、')}`;
+    const profileContext = `用户画像：${profile.name}`;
 
     const languageContext = `编程语言：${language.name}
 常见问题领域：${language.commonIssues.join('、')}
 学习主题：${language.learningTopics.join('、')}`;
 
-    return `请根据以下信息生成一个高质量的编程问题：
+    return `请根据以下信息生成一个向AI编程助手提出的需求，需求是让AI创建一个网站，必须带有网站两个字。然后再补充四轮对话。不是问题，跟技术无关。案例：“1.帮我设计一个在线知识问答(Quz)游戏页面。页面能从题库中随机抽取题目并展示，提供多个选项让用户选择。每题有倒计时功能，回答后立刻判断对错，并在全部答完后显示最终得分。2.加入排行榜功能，可以展示每日、每周成总分最高的玩家名，增加竞争性。3.添加支持不同主题或难度的题库，用户在开始游戏前，可以选择自己感兴趣的领域（如“历史”、“电影、“科学"）或挑粘战不同难度等级。”
 
 ${profileContext}
 
 ${languageContext}
 
-问题类型：${questionType}
+内容类型：${questionType}
 
 要求：
-1. 问题应该符合用户画像的特点和需求
-2. 问题应该与指定的编程语言相关
-3. 问题应该属于指定的问题类型
-4. 问题应该具有实际意义，能够测试AI编程助手的能力
-5. 问题描述要清晰、具体，避免过于宽泛
-6. 问题长度控制在50-150字之间
+1. 内容应该符合用户画像的特点和需求
+2. 内容应该与指定的编程语言相关
+3. 内容应该属于指定的问题类型
+4. 内容应该具有实际意义，能够测试AI编程助手的能力
+5. 内容描述要清晰、具体，避免过于宽泛
+6. 内容长度控制在70字以内
 
-请直接返回问题内容，不需要额外的解释。`;
+请直接返回内容，不需要额外的解释。`;
   }
 
   /**
@@ -314,8 +313,6 @@ AI回答：${aiResponse}
       });
     }
     
-    console.log('questions==========》1', questions)  
-    
     return questions;
   }
 
@@ -347,7 +344,6 @@ AI回答：${aiResponse}
     profile: UserProfile,
     language: ProgrammingLanguage,
     questionTypes: string[],
-    count: number = 1
   ): Promise<Question[]> {
     const questions: Question[] = [];
     
@@ -368,7 +364,6 @@ AI回答：${aiResponse}
         }
       }
     }
-    console.log('generateQuestionBatch 最终返回问题数量:', questions.length);
     return questions;
   }
 }

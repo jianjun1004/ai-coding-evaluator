@@ -139,16 +139,7 @@ export default function Step2Questions({
         customUserProfile: data.customUserProfile,
         customProgrammingLanguage: data.customProgrammingLanguage
       }
-      
-      // 调试：打印请求数据
-      console.log('生成问题API请求数据:', requestData)
-      console.log('当前步骤数据:', data)
-      console.log('用户画像数据:', {
-        customUserProfile: data.customUserProfile
-      })
-      console.log('编程语言数据:', {
-        customProgrammingLanguage: data.customProgrammingLanguage
-      })
+
       
       // 调用后端API生成问题
       const response = await fetch('/api/tasks/generate-questions', {
