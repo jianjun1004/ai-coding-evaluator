@@ -53,6 +53,7 @@ export interface EvaluationTask {
   programmingLanguage: ProgrammingLanguage;
   aiProducts: AIProduct[];
   questionTypes: QuestionType[];
+  questions?: Question[]; // 用户提供或生成的具体问题内容
   maxFollowUps: number;
   status: TaskStatus;
   createdAt: Date;

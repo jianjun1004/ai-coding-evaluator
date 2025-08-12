@@ -181,13 +181,33 @@ export default function Step3Config({
         feishuConfig: feishuConfig.enabled ? feishuConfig : null
       }
 
-      // 模拟API调用执行任务
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      // 调用真实的API执行任务
+      const response = await fetch('/api/tasks/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(taskData)
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json()
+      
+      if (!result.success) {
+        throw new Error(result.error?.message || '执行任务失败')
+      }
       
       toast({
         title: "执行成功",
-        description: "任务已开始执行",
+        description: "任务已开始执行，正在查询进度...",
       })
+
+      // 启动进度查询
+      startProgressQuery()
 
       // 调用父组件的提交函数
       if (onSubmit) {
@@ -202,6 +222,122 @@ export default function Step3Config({
     } finally {
       setLoading(false)
     }
+  }
+
+  // 启动进度查询
+  const startProgressQuery = () => {
+    let lastProgress = null
+    let noChangeCount = 0
+    const maxNoChangeCount = 20 // 最多20次查询无变化（约1分钟）
+    
+    // 每3秒查询一次任务进度
+    const progressInterval = setInterval(async () => {
+      try {
+        const response = await fetch('/api/tasks/status')
+        if (response.ok) {
+          const progressData = await response.json()
+          if (progressData.success && progressData.data) {
+            const progress = progressData.data
+            
+            // 检查进度是否有变化
+            const progressKey = `${progress.status}-${progress.currentStep}-${progress.progress}-${progress.lastUpdated}`
+            if (progressKey === lastProgress) {
+              noChangeCount++
+              
+              // 如果连续多次无变化，可能异常，停止查询
+              if (noChangeCount >= maxNoChangeCount) {
+                clearInterval(progressInterval)
+                toast({
+                  title: "查询中断",
+                  description: "任务进度长时间无变化，可能异常，已停止查询",
+                  variant: "destructive"
+                })
+                return
+              }
+            } else {
+              // 进度有变化，重置计数器
+              noChangeCount = 0
+              lastProgress = progressKey
+            }
+            
+            // 根据后端返回的状态判断是否停止轮询
+            if (progress.shouldStopPolling || progress.status === 'completed' || progress.status === 'failed' || progress.status === 'cancelled') {
+              clearInterval(progressInterval)
+              
+              if (progress.status === 'completed') {
+                toast({
+                  title: "任务完成",
+                  description: `评测任务已完成，共处理 ${progress.finalResult?.totalQuestions || 0} 个问题`,
+                })
+              } else if (progress.status === 'failed') {
+                toast({
+                  title: "任务失败",
+                  description: progress.finalResult?.error || "评测任务执行失败",
+                  variant: "destructive"
+                })
+              } else if (progress.status === 'cancelled') {
+                toast({
+                  title: "任务已取消",
+                  description: "评测任务已被取消",
+                })
+              } else if (progress.status === 'NO_TASK_RUNNING') {
+                toast({
+                  title: "无任务运行",
+                  description: progress.message || "当前没有任务在运行",
+                })
+              }
+            } else {
+              // 显示进度信息
+              toast({
+                title: "任务执行中",
+                description: `当前步骤: ${progress.currentStep || '未知'} (${progress.progress || 0}%)`,
+              })
+            }
+          } else {
+            // 如果没有数据，增加无变化计数
+            noChangeCount++
+            if (noChangeCount >= maxNoChangeCount) {
+              clearInterval(progressInterval)
+              toast({
+                title: "查询中断",
+                description: "长时间无法获取任务进度，可能异常，已停止查询",
+                variant: "destructive"
+              })
+            }
+          }
+        } else {
+          // 如果响应不成功，增加无变化计数
+          noChangeCount++
+          if (noChangeCount >= maxNoChangeCount) {
+            clearInterval(progressInterval)
+            toast({
+              title: "查询中断",
+              description: "长时间无法获取任务进度，可能异常，已停止查询",
+            })
+          }
+        }
+      } catch (error) {
+        console.error('查询任务进度失败:', error)
+        // 如果查询失败，增加无变化计数
+        noChangeCount++
+        if (noChangeCount >= maxNoChangeCount) {
+          clearInterval(progressInterval)
+          toast({
+            title: "查询中断",
+            description: "长时间无法获取任务进度，可能异常，已停止查询",
+          })
+        }
+      }
+    }, 3000)
+
+    // 5分钟后自动停止查询（防止无限查询）
+    setTimeout(() => {
+      clearInterval(progressInterval)
+      toast({
+        title: "查询超时",
+        description: "任务进度查询已超时，请手动检查任务状态",
+      })
+    }, 5 * 60 * 1000)
   }
 
   return (

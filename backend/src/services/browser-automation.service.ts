@@ -29,6 +29,43 @@ export class BrowserAutomationService {
   }
 
   /**
+   * 获取选择器，优先使用产品配置，失败时回退到备选选择器
+   */
+  private getSelectorWithFallback(
+    product: AIProduct,
+    configSelector: string | undefined,
+    fallbackSelectors: string[]
+  ): string {
+    if (configSelector) {
+      log.debug('Using configured selector', {
+        productId: product.id,
+        selector: configSelector
+      });
+      return configSelector;
+    }
+    
+    const fallbackSelector = fallbackSelectors.join(', ');
+    log.debug('Using fallback selector', {
+      productId: product.id,
+      selector: fallbackSelector
+    });
+    return fallbackSelector;
+  }
+
+  /**
+   * 尝试使用指定选择器，返回是否成功
+   */
+  private async trySelector(page: Page, selector: string, timeout: number = 3000): Promise<boolean> {
+    try {
+      await page.waitForSelector(selector, { timeout });
+      return true;
+    } catch (error) {
+      log.debug('Selector not found', { selector, timeout });
+      return false;
+    }
+  }
+
+  /**
    * 初始化浏览器
    */
   async initBrowser(): Promise<void> {
@@ -226,28 +263,65 @@ export class BrowserAutomationService {
   ): Promise<void> {
     try {
       if (instruction.includes('点击AI编程')) {
-        // 豆包：点击AI编程按钮
-        await page.waitForSelector('[data-testid="ai-coding-button"], .ai-coding-btn, [aria-label*="AI编程"]', { timeout: 5000 });
-        await page.click('[data-testid="ai-coding-button"], .ai-coding-btn, [aria-label*="AI编程"]');
+        // 豆包：点击AI编程按钮 - 优先使用产品配置的选择器
+        const aiCodingSelector = this.getSelectorWithFallback(
+          product,
+          product.interactionConfig.selectors.modeSelector,
+          ['[data-testid="ai-coding-button"]', '.ai-coding-btn', '[aria-label*="AI编程"]']
+        );
+        
+        log.info('Attempting to click AI coding button', {
+          productId: product.id,
+          selector: aiCodingSelector
+        });
+        
+        await page.waitForSelector(aiCodingSelector, { timeout: 5000 });
+        await page.click(aiCodingSelector);
         await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        log.info('Successfully clicked AI coding button', { productId: product.id });
       } else if (instruction.includes('深度思考')) {
-        // 开启深度思考
-        const toggleSelector = '[data-testid="deep-think-toggle"], .deep-think-toggle, [aria-label*="深度思考"]';
+        // 开启深度思考 - 优先使用产品配置的选择器
+        const deepThinkSelector = this.getSelectorWithFallback(
+          product,
+          product.interactionConfig.selectors.modeSelector,
+          ['[data-testid="deep-think-toggle"]', '.deep-think-toggle', '[aria-label*="深度思考"]']
+        );
+        
+        log.info('Attempting to toggle deep think mode', {
+          productId: product.id,
+          selector: deepThinkSelector
+        });
+        
         try {
-          await page.waitForSelector(toggleSelector, { timeout: 3000 });
-          const isEnabled = await page.$eval(toggleSelector, el => el.classList.contains('enabled') || el.getAttribute('aria-checked') === 'true');
+          await page.waitForSelector(deepThinkSelector, { timeout: 3000 });
+          const isEnabled = await page.$eval(deepThinkSelector, el => 
+            el.classList.contains('enabled') || 
+            el.getAttribute('aria-checked') === 'true' ||
+            el.getAttribute('data-state') === 'checked'
+          );
+          
           if (!isEnabled) {
-            await page.click(toggleSelector);
+            await page.click(deepThinkSelector);
             await new Promise(resolve => setTimeout(resolve, 500));
+            log.info('Successfully enabled deep think mode', { productId: product.id });
+          } else {
+            log.info('Deep think mode already enabled', { productId: product.id });
           }
         } catch (e) {
-          log.warn('Deep think toggle not found or already enabled', { productId: product.id });
+          log.warn('Deep think toggle not found or already enabled', { 
+            productId: product.id,
+            selector: deepThinkSelector,
+            error: e instanceof Error ? e.message : 'Unknown error'
+          });
         }
       } else if (instruction.includes('@AI编程')) {
         // 元宝：需要在输入框前加@AI编程
         // 这个会在submitQuestion中处理
+        log.debug('AI programming instruction will be handled in submitQuestion', { productId: product.id });
       } else if (instruction.includes('选择') && instruction.includes('模型')) {
         // 模型选择会在selectModel中处理
+        log.debug('Model selection instruction will be handled in selectModel', { productId: product.id });
       }
     } catch (error: any) {
       log.warn('Failed to execute special instruction', {
@@ -351,7 +425,7 @@ export class BrowserAutomationService {
         questionLength: question.length
       });
     } catch (error: any) {
-      log.error('Failed to submit question', {
+      log.error('提交问题============》', {
         productId: product.id,
         error: error?.message || 'Unknown error'
       });

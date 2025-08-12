@@ -37,6 +37,18 @@ export interface TaskProgress {
   totalSteps: number;
   progress: number;
   estimatedTimeRemaining?: number;
+  // 新增字段：任务完成状态管理
+  isCompleted: boolean;
+  completionTime?: Date;
+  finalResult?: {
+    status: TaskStatus;
+    totalQuestions: number;
+    totalResponses: number;
+    averageScore: number;
+    duration: number;
+    error?: string;
+  };
+  lastUpdated: Date;
 }
 
 export class TaskSchedulerService {
@@ -68,6 +80,33 @@ export class TaskSchedulerService {
     const startTime = Date.now();
     
     try {
+      // 调试日志
+      log.info('Starting executeEvaluationTask', {
+        taskId: task.id,
+        taskName: task.name,
+        hasAiProducts: !!task.aiProducts,
+        aiProductsType: typeof task.aiProducts,
+        aiProductsLength: task.aiProducts?.length,
+        hasQuestionTypes: !!task.questionTypes,
+        questionTypesType: typeof task.questionTypes,
+        questionTypesLength: task.questionTypes?.length,
+        hasUserProfile: !!task.userProfile,
+        hasProgrammingLanguage: !!task.programmingLanguage
+      });
+      
+      // 验证任务参数
+      if (!task.aiProducts || !Array.isArray(task.aiProducts) || task.aiProducts.length === 0) {
+        throw new Error('Task must have valid aiProducts array with at least one product');
+      }
+      
+      if (!task.questionTypes || !Array.isArray(task.questionTypes) || task.questionTypes.length === 0) {
+        throw new Error('Task must have valid questionTypes array with at least one type');
+      }
+      
+      if (!task.userProfile || !task.programmingLanguage) {
+        throw new Error('Task must have valid userProfile and programmingLanguage');
+      }
+      
       // 检查并发限制
       if (this.runningTasks.size >= this.maxConcurrentTasks) {
         throw new Error('Maximum concurrent tasks limit reached');
@@ -78,12 +117,24 @@ export class TaskSchedulerService {
       
       // 初始化进度跟踪
       const totalSteps = this.calculateTotalSteps(task);
-      this.runningTasks.set(task.id, {
+      const progressObject = {
         taskId: task.id,
         currentStep: '初始化任务',
         completedSteps: 0,
         totalSteps,
-        progress: 0
+        progress: 0,
+        isCompleted: false,
+        lastUpdated: new Date()
+      };
+      
+      this.runningTasks.set(task.id, progressObject);
+      
+      // 添加任务添加到runningTasks的调试日志
+      log.info('Task added to runningTasks', {
+        taskId: task.id,
+        totalSteps,
+        runningTasksSize: this.runningTasks.size,
+        progressObject
       });
 
       log.info('Starting evaluation task', {
@@ -114,6 +165,21 @@ export class TaskSchedulerService {
         duration
       };
 
+      // 保存任务完成状态到进度跟踪中
+      const progress = this.runningTasks.get(task.id);
+      if (progress) {
+        progress.isCompleted = true;
+        progress.completionTime = new Date();
+        progress.finalResult = {
+          status: TaskStatus.COMPLETED,
+          totalQuestions: stats.totalQuestions,
+          totalResponses: stats.totalResponses,
+          averageScore: stats.averageScore,
+          duration
+        };
+        progress.lastUpdated = new Date();
+      }
+
       log.info('Evaluation task completed successfully', {
         taskId: task.id,
         duration,
@@ -130,6 +196,22 @@ export class TaskSchedulerService {
       const endTime = Date.now();
       const duration = Math.round((endTime - startTime) / 1000);
 
+      // 保存任务失败状态到进度跟踪中
+      const progress = this.runningTasks.get(task.id);
+      if (progress) {
+        progress.isCompleted = true;
+        progress.completionTime = new Date();
+        progress.finalResult = {
+          status: TaskStatus.FAILED,
+          totalQuestions: 0,
+          totalResponses: 0,
+          averageScore: 0,
+          duration,
+          error: error?.message || 'Unknown error'
+        };
+        progress.lastUpdated = new Date();
+      }
+
       return {
         taskId: task.id,
         status: TaskStatus.FAILED,
@@ -141,6 +223,22 @@ export class TaskSchedulerService {
         error: error?.message || 'Unknown error'
       };
     } finally {
+      // 如果任务异常退出且没有设置完成状态，则标记为失败
+      const progress = this.runningTasks.get(task.id);
+      if (progress && !progress.isCompleted) {
+        progress.isCompleted = true;
+        progress.completionTime = new Date();
+        progress.finalResult = {
+          status: TaskStatus.FAILED,
+          totalQuestions: 0,
+          totalResponses: 0,
+          averageScore: 0,
+          duration: 0,
+          error: 'Task execution was interrupted'
+        };
+        progress.lastUpdated = new Date();
+      }
+      
       this.runningTasks.delete(task.id);
     }
   }
@@ -150,6 +248,15 @@ export class TaskSchedulerService {
    */
   private async executeEvaluationFlow(task: EvaluationTask): Promise<EvaluationSession[]> {
     const sessions: EvaluationSession[] = [];
+
+    // 再次验证数组（双重保险）
+    if (!task.aiProducts || !Array.isArray(task.aiProducts) || task.aiProducts.length === 0) {
+      throw new Error('Invalid aiProducts array in executeEvaluationFlow');
+    }
+    
+    if (!task.questionTypes || !Array.isArray(task.questionTypes) || task.questionTypes.length === 0) {
+      throw new Error('Invalid questionTypes array in executeEvaluationFlow');
+    }
 
     // 为每个AI产品创建评测会话
     for (const product of task.aiProducts) {
@@ -191,19 +298,26 @@ export class TaskSchedulerService {
     task: EvaluationTask
   ): Promise<void> {
     try {
-      // 生成初始问题
-      const questions = await this.questionGenerator.generateInitialQuestion(
-        task.userProfile,
-        task.programmingLanguage,
-        questionType
-      );
+      let questions: Question[] = [];
       
-      // 处理生成的问题数组
+      // 优先使用用户提供的问题内容
+      if (task.questions && task.questions.length > 0) {
+        // 过滤出当前问题类型的问题
+        questions = task.questions.filter(q => q.type === questionType);
+      }
+      
+      // 如果没有用户提供的问题，则结束
+      if (questions.length === 0) {
+        return;
+      }
+      
+      // 处理问题数组
       for (const question of questions) {
         session.questions.push(question);
         
         // 获取AI回答
         const product = AI_PRODUCTS.find(p => p.id === session.productId);
+        console.log('product=====================================>', product);
         if (!product) {
           throw new Error(`Product not found: ${session.productId}`);
         }
@@ -432,6 +546,7 @@ export class TaskSchedulerService {
       progress.currentStep = currentStep;
       progress.completedSteps++;
       progress.progress = Math.round((progress.completedSteps / progress.totalSteps) * 100);
+      progress.lastUpdated = new Date();
     }
   }
 
@@ -439,6 +554,15 @@ export class TaskSchedulerService {
    * 计算总步骤数
    */
   private calculateTotalSteps(task: EvaluationTask): number {
+    // 安全检查
+    if (!task.aiProducts || !Array.isArray(task.aiProducts) || task.aiProducts.length === 0) {
+      return 0;
+    }
+    
+    if (!task.questionTypes || !Array.isArray(task.questionTypes) || task.questionTypes.length === 0) {
+      return 0;
+    }
+    
     // 每个AI产品 * 每种问题类型 * (1个初始问题 + 最多3个追问) + 评分步骤
     return task.aiProducts.length * task.questionTypes.length * (1 + task.maxFollowUps + 1);
   }
@@ -477,7 +601,31 @@ export class TaskSchedulerService {
    * 获取任务进度
    */
   getTaskProgress(taskId: string): TaskProgress | null {
-    return this.runningTasks.get(taskId) || null;
+    // 添加调试日志
+    log.info('getTaskProgress called in TaskSchedulerService', {
+      taskId,
+      runningTasksSize: this.runningTasks.size,
+      runningTasksKeys: Array.from(this.runningTasks.keys())
+    });
+    
+    const progress = this.runningTasks.get(taskId);
+    if (progress) {
+      log.info('Found progress for task', { taskId, progress });
+      return progress;
+    }
+    
+    // 如果任务不在运行中，尝试从内存存储中获取已完成的任务信息
+    // 这里可以扩展为从持久化存储中查询历史任务状态
+    // 目前返回null，表示任务不存在或已完成
+    log.info('No progress found for task', { taskId });
+    return null;
+  }
+
+  /**
+   * 获取所有任务状态（包括已完成的）
+   */
+  getAllTaskStatuses(): TaskProgress[] {
+    return Array.from(this.runningTasks.values());
   }
 
   /**
@@ -486,6 +634,22 @@ export class TaskSchedulerService {
   async cancelTask(taskId: string): Promise<void> {
     try {
       await this.updateTaskStatus(taskId, TaskStatus.CANCELLED);
+      
+      // 保存任务取消状态到进度跟踪中
+      const progress = this.runningTasks.get(taskId);
+      if (progress) {
+        progress.isCompleted = true;
+        progress.completionTime = new Date();
+        progress.finalResult = {
+          status: TaskStatus.CANCELLED,
+          totalQuestions: 0,
+          totalResponses: 0,
+          averageScore: 0,
+          duration: 0
+        };
+        progress.lastUpdated = new Date();
+      }
+      
       this.runningTasks.delete(taskId);
       
       log.info('Task cancelled', { taskId });

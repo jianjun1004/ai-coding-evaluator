@@ -61,40 +61,40 @@ export default function TaskConfig() {
 
   // 任务提交函数
   const handleSubmit = async (finalData) => {
-    setLoading(true)
-    try {
-      // 合并所有步骤的数据
-      const completeTaskData = {
-        ...stepData.step1,
-        ...stepData.step2,
-        ...stepData.step3,
-        ...finalData
-      }
+    // setLoading(true)
+    // try {
+    //   // 合并所有步骤的数据
+    //   const completeTaskData = {
+    //     ...stepData.step1,
+    //     ...stepData.step2,
+    //     ...stepData.step3,
+    //     ...finalData
+    //   }
 
-      // 模拟API调用
-      await new Promise(resolve => setTimeout(resolve, 2000))
+    //   // 模拟API调用
+    //   await new Promise(resolve => setTimeout(resolve, 2000))
       
-      toast({
-        title: "任务创建成功",
-        description: "任务已保存并开始执行",
-      })
+    //   toast({
+    //     title: "任务创建成功",
+    //     description: "任务已保存并开始执行",
+    //   })
 
-      // 重置表单
-      setCurrentStep(1)
-      setStepData({
-        step1: {},
-        step2: {},
-        step3: {}
-      })
-    } catch (error) {
-      toast({
-        title: "任务创建失败",
-        description: "请重试",
-        variant: "destructive"
-      })
-    } finally {
-      setLoading(false)
-    }
+    //   // 重置表单
+    //   setCurrentStep(1)
+    //   setStepData({
+    //     step1: {},
+    //     step2: {},
+    //     step3: {}
+    //   })
+    // } catch (error) {
+    //   toast({
+    //     title: "任务创建失败",
+    //     description: "请重试",
+    //     variant: "destructive"
+    //   })
+    // } finally {
+    //   setLoading(false)
+    // }
   }
 
   // 渲染当前步骤

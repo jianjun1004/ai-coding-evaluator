@@ -12,10 +12,10 @@ export const AI_PRODUCTS: AIProduct[] = [
     },
     interactionConfig: {
       selectors: {
-        modeSelector: '[data-testid="ai-coding-button"]', // AI编程按钮
+        modeSelector: '[data-testid="skill_bar_button_16"]', // AI编程按钮
         inputField: 'textarea[placeholder*="输入"]',
-        submitButton: 'button[type="submit"]',
-        responseArea: '.message-content'
+        submitButton: 'button[type="button"]',
+        responseArea: '#flow-end-msg-send'
       },
       waitConditions: {
         pageLoad: 5000,
@@ -23,7 +23,7 @@ export const AI_PRODUCTS: AIProduct[] = [
       },
       specialInstructions: [
         '点击AI编程按钮',
-        '选择深度思考为"自动"'
+        // '选择深度思考为"自动"'
       ]
     }
   },

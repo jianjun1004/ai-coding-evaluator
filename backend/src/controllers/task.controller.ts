@@ -267,8 +267,23 @@ export class TaskController {
       // 从请求体获取任务数据
       const taskData = req.body;
       
+      // 添加详细的调试日志
+      log.info('executeTask called', {
+        method: req.method,
+        url: req.url,
+        body: taskData,
+        headers: req.headers
+      });
+      
       // 验证必要字段
       if (!taskData.name || !taskData.aiProductIds || !taskData.questionTypes) {
+        log.error('Missing required fields', {
+          name: !!taskData.name,
+          aiProductIds: !!taskData.aiProductIds,
+          questionTypes: !!taskData.questionTypes,
+          taskData
+        });
+        
         const response: APIResponse<null> = {
           success: false,
           error: {
@@ -280,24 +295,78 @@ export class TaskController {
         return;
       }
 
-      // 创建任务对象
+      // 验证问题内容（如果提供了具体问题）
+      if (taskData.questions && Array.isArray(taskData.questions)) {
+        if (taskData.questions.length === 0) {
+          const response: APIResponse<null> = {
+            success: false,
+            error: {
+              code: 'INVALID_QUESTIONS',
+              message: 'Questions array cannot be empty if provided'
+            }
+          };
+          res.status(400).json(response);
+          return;
+        }
+        
+        // 验证每个问题都有必要字段
+        for (const question of taskData.questions) {
+          if (!question.content || !question.type) {
+            const response: APIResponse<null> = {
+              success: false,
+              error: {
+                code: 'INVALID_QUESTION_FORMAT',
+                message: 'Each question must have content and type fields'
+              }
+            };
+            res.status(400).json(response);
+            return;
+          }
+        }
+      }
+
+      // 创建任务对象 - 确保包含所有必要字段
       const task = {
         id: 'current-task',
-        ...taskData,
-        status: 'RUNNING',
+        name: taskData.name,
+        description: taskData.description,
+        // 确保aiProducts字段存在且格式正确
+        aiProducts: taskData.aiProducts || taskData.aiProductIds?.map((id: string) => ({ id, name: `Product-${id}` })) || [],
+        questionTypes: taskData.questionTypes || [],
+        questions: taskData.questions || [], // 用户提供或生成的具体问题内容
+        maxFollowUps: taskData.maxFollowUps || 3,
+        // 添加默认的用户画像和编程语言
+        userProfile: taskData.userProfile || { name: 'Default User', characteristics: ['programmer'] },
+        programmingLanguage: taskData.programmingLanguage || { name: 'JavaScript', commonIssues: [], learningTopics: [] },
+        status: TaskStatus.RUNNING,
         createdAt: new Date(),
         updatedAt: new Date()
       };
 
+      // 添加任务对象创建的调试日志
+      log.info('Task object created', {
+        taskId: task.id,
+        taskName: task.name,
+        hasAiProducts: !!task.aiProducts,
+        aiProductsLength: task.aiProducts?.length,
+        hasQuestionTypes: !!task.questionTypes,
+        questionTypesLength: task.questionTypes?.length,
+        hasUserProfile: !!task.userProfile,
+        hasProgrammingLanguage: !!task.programmingLanguage,
+        taskObject: task,
+        // 添加原始数据的调试信息
+        originalTaskData: taskData
+      });
+
       // 异步执行任务
       this.taskSchedulerService.executeEvaluationTask(task).catch(error => {
-        log.error('Task execution failed', { error });
+        log.error('Task execution failed', { error, taskId: task.id });
       });
 
       const response: APIResponse<{ message: string; taskId: string }> = {
         success: true,
         data: {
-          message: 'Task execution started',
+          message: '321``',
           taskId: 'current-task'
         }
       };
@@ -322,15 +391,53 @@ export class TaskController {
    */
   async getTaskProgress(req: Request, res: Response): Promise<void> {
     try {
+      // 添加调试日志
+      log.info('getTaskProgress called', {
+        method: req.method,
+        url: req.url,
+        query: req.query
+      });
+      
       // 获取当前任务的进度
       const progress = this.taskSchedulerService.getTaskProgress('current-task');
       
-      const response: APIResponse<any> = {
-        success: true,
-        data: progress || { status: 'NO_TASK_RUNNING' }
-      };
+      // 添加进度查询结果的调试日志
+      log.info('Progress query result', {
+        hasProgress: !!progress,
+        progressDetails: progress,
+        taskId: 'current-task'
+      });
       
-      res.json(response);
+      if (progress) {
+        // 返回完整的进度信息
+        const response: APIResponse<any> = {
+          success: true,
+          data: {
+            ...progress,
+            // 添加状态判断字段，便于前端判断
+            shouldStopPolling: progress.isCompleted,
+            status: progress.isCompleted ? 
+              (progress.finalResult?.status || 'unknown') : 
+              'running'
+          }
+        };
+        
+        log.info('Returning progress data', { response });
+        res.json(response);
+      } else {
+        // 没有任务在运行
+        const response: APIResponse<any> = {
+          success: true,
+          data: { 
+            status: 'NO_TASK_RUNNING',
+            shouldStopPolling: true,
+            message: '当前没有任务在运行'
+          }
+        };
+        
+        log.info('No task running, returning default response', { response });
+        res.json(response);
+      }
     } catch (error: any) {
       log.error('Failed to get task progress', { error });
       const response: APIResponse<null> = {
