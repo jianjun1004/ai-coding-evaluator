@@ -13,7 +13,7 @@ export const AI_PRODUCTS: AIProduct[] = [
     interactionConfig: {
       selectors: {
         modeSelector: '[data-testid="skill_bar_button_16"]', // AI编程按钮
-        inputField: 'textarea[placeholder*="输入"]',
+        inputField: '[data-slate-editor="true"]', // Slate.js富文本编辑器
         submitButton: 'button[type="button"]',
         responseArea: '#flow-end-msg-send'
       },
