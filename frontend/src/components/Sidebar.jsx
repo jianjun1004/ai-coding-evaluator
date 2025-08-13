@@ -3,7 +3,6 @@ import {
   Plus, 
   ChevronLeft,
   ChevronRight,
-  Bot,
   Activity
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -22,21 +21,8 @@ export default function Sidebar({ open, setOpen }) {
       open ? "w-64" : "w-16"
     )}>
       <div className="flex h-full flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <div className={cn(
-            "flex items-center space-x-3 transition-opacity duration-300",
-            open ? "opacity-100" : "opacity-0"
-          )}>
-            <div className="flex items-center justify-center w-8 h-8 bg-primary rounded-lg">
-              <Bot className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">AI评测系统</h1>
-              <p className="text-xs text-muted-foreground">编程产品评测</p>
-            </div>
-          </div>
-          
+        {/* Toggle Button */}
+        <div className="flex items-center justify-end p-4 border-b border-border">
           <Button
             variant="ghost"
             size="sm"

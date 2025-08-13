@@ -8,13 +8,16 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 
 import { 
+  Users, 
+  Code, 
   MessageSquare,
   Plus,
   Trash2,
   ChevronRight,
   ChevronLeft,
   Sparkles,
-  Loader2
+  Loader2,
+  SkipForward
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
@@ -27,11 +30,13 @@ const presetQuestionTypes = [
   { id: 'performance', name: '性能优化', description: '关于代码性能优化的问题' }
 ]
 
-export default function Step2Questions({ 
+export default function Step1Combined({ 
   data, 
   onDataChange, 
   onNext, 
-  onPrevious 
+  onPrevious,
+  onSkipToStep3,
+  isValid = true 
 }) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
@@ -40,38 +45,41 @@ export default function Step2Questions({
   const [customQuestionType, setCustomQuestionType] = useState('')
   const [showCustomTypeForm, setShowCustomTypeForm] = useState(false)
 
+  // 用户画像和编程语言状态
+  const [customUserProfile, setCustomUserProfile] = useState({
+    name: data.customUserProfile?.name || ''
+  })
+
+  const [customProgrammingLanguage, setCustomProgrammingLanguage] = useState({
+    name: data.customProgrammingLanguage?.name || ''
+  })
+
   // 初始化问题列表
   const [questions, setQuestions] = useState(data.questions || [])
 
-  // 验证必要的数据是否存在
-  const validateRequiredData = () => {
-    const hasUserProfile = data.customUserProfile && data.customUserProfile.name
-    const hasProgrammingLanguage = data.customProgrammingLanguage && data.customProgrammingLanguage.name
-    
-    if (!hasUserProfile) {
-      toast({
-        title: "数据缺失",
-        description: "请先返回第一步配置用户画像（需要包含名称）",
-        variant: "destructive"
-      })
-      return false
-    }
-    
-    if (!hasProgrammingLanguage) {
-      toast({
-        title: "数据缺失",
-        description: "请先返回第一步配置编程语言（需要包含名称）",
-        variant: "destructive"
-      })
-      return false
-    }
-    
+  // 验证用户画像和编程语言
+  const validateProfileAndLanguage = () => {
+    if (!customUserProfile.name.trim()) return false
+    if (!customProgrammingLanguage.name.trim()) return false
+    return true
+  }
+
+  // 验证问题类型
+  const validateQuestionTypes = () => {
+    if (!data.questionTypes || data.questionTypes.length === 0) return false
+    return data.questionTypes.every(type => typeof type === 'string' && type.trim().length > 0)
+  }
+
+  // 验证表单
+  const validateForm = () => {
+    if (!validateProfileAndLanguage()) return false
+    if (!validateQuestionTypes()) return false
+    if (!questions || questions.length === 0) return false
     return true
   }
 
   // 处理预设问题类型选择
   const handlePresetQuestionTypeChange = (typeId, checked) => {
-    // 根据typeId找到对应的中文名称
     const typeInfo = presetQuestionTypes.find(type => type.id === typeId)
     const typeName = typeInfo ? typeInfo.name : typeId
     
@@ -117,8 +125,12 @@ export default function Step2Questions({
 
   // 生成问题
   const handleGenerateQuestions = async () => {
-    // 验证必要的数据
-    if (!validateRequiredData()) {
+    if (!validateProfileAndLanguage()) {
+      toast({
+        title: "数据缺失",
+        description: "请先配置用户画像和编程语言",
+        variant: "destructive"
+      })
       return
     }
 
@@ -133,15 +145,12 @@ export default function Step2Questions({
 
     setLoading(true)
     try {
-      // 准备请求数据
       const requestData = {
         questionTypes: data.questionTypes || [],
-        customUserProfile: data.customUserProfile,
-        customProgrammingLanguage: data.customProgrammingLanguage
+        customUserProfile: customUserProfile,
+        customProgrammingLanguage: customProgrammingLanguage
       }
 
-      
-      // 调用后端API生成问题
       const response = await fetch('/api/tasks/generate-questions', {
         method: 'POST',
         headers: {
@@ -210,7 +219,7 @@ export default function Step2Questions({
     const question = {
       id: `manual_${Date.now()}`,
       content: newQuestion.trim(),
-      type: data.questionTypes[0], // 使用第一个问题类型
+      type: data.questionTypes[0],
       isGenerated: false,
       isCustom: true
     }
@@ -239,54 +248,106 @@ export default function Step2Questions({
     })
   }
 
-  // 验证表单
-  const validateForm = () => {
-    if (!data.questionTypes || data.questionTypes.length === 0) return false
-    if (!questions || questions.length === 0) return false
-    return true
-  }
-
-  // 验证问题类型是否为有效字符串
-  const validateQuestionTypes = () => {
-    if (!data.questionTypes || data.questionTypes.length === 0) return false
-    return data.questionTypes.every(type => typeof type === 'string' && type.trim().length > 0)
-  }
-
+  // 处理下一步
   const handleNext = () => {
     if (!validateForm()) {
       toast({
         title: "验证失败",
-        description: "请选择问题类型并添加至少一个问题",
+        description: "请完成所有必要的配置",
         variant: "destructive"
       })
       return
     }
-    
-    if (!validateQuestionTypes()) {
-      toast({
-        title: "验证失败",
-        description: "请确保选择的问题类型都是有效的",
-        variant: "destructive"
-      })
-      return
+
+    // 准备数据
+    const stepData = {
+      customUserProfile: customUserProfile,
+      customProgrammingLanguage: customProgrammingLanguage,
+      questionTypes: data.questionTypes || [],
+      questions: questions
     }
-    
+
+    onDataChange(stepData)
     onNext()
+  }
+
+  // 处理跳转到步骤三
+  const handleSkipToStep3 = () => {
+    // 准备数据（不需要验证必填字段）
+    const stepData = {
+      customUserProfile: customUserProfile,
+      customProgrammingLanguage: customProgrammingLanguage,
+      questionTypes: data.questionTypes || [],
+      questions: questions
+    }
+
+    onDataChange(stepData)
+    if (onSkipToStep3) {
+      onSkipToStep3(stepData)
+    }
   }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">第二步：配置问题类型和生成问题</h2>
-          <p className="text-muted-foreground">选择问题类型并生成或添加评测问题</p>
+          <h2 className="text-2xl font-bold">第一步：配置用户画像、编程语言和问题</h2>
+          <p className="text-muted-foreground">配置用户画像、编程语言，选择问题类型并生成问题</p>
         </div>
         <div className="flex items-center space-x-2">
-          <Badge variant="secondary">步骤 2/3</Badge>
+          <Badge variant="secondary">步骤 1/2</Badge>
         </div>
       </div>
 
       <div className="grid gap-6">
+        {/* 用户画像配置 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Users className="h-5 w-5" />
+              <span>用户画像</span>
+            </CardTitle>
+            <CardDescription>
+              自定义用户画像，用于生成符合特定用户群体的编程问题
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="customProfileName">画像名称</Label>
+              <Input
+                id="customProfileName"
+                placeholder="输入用户画像名称，如：计算机专业学生、前端开发者等"
+                value={customUserProfile.name}
+                onChange={(e) => setCustomUserProfile(prev => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 编程语言配置 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Code className="h-5 w-5" />
+              <span>编程语言</span>
+            </CardTitle>
+            <CardDescription>
+              自定义编程语言，用于生成特定语言的编程问题
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="customLanguageName">语言名称</Label>
+              <Input
+                id="customLanguageName"
+                placeholder="输入编程语言名称，如：JavaScript、Python、Java等"
+                value={customProgrammingLanguage.name}
+                onChange={(e) => setCustomProgrammingLanguage(prev => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
         {/* 问题类型配置 */}
         <Card>
           <CardHeader>
@@ -501,18 +562,21 @@ export default function Step2Questions({
         <Button
           variant="outline"
           onClick={onPrevious}
+          disabled={true}
         >
           <ChevronLeft className="h-4 w-4 mr-2" />
           上一步
         </Button>
         
-        <Button
-          onClick={handleNext}
-          disabled={!validateForm()}
-        >
-          下一步
-          <ChevronRight className="h-4 w-4 ml-2" />
-        </Button>
+        <div className="flex items-center space-x-3">
+          <Button
+            onClick={handleNext}
+            disabled={!validateForm()}
+          >
+            下一步
+            <ChevronRight className="h-4 w-4 ml-2" />
+          </Button>
+        </div>
       </div>
     </div>
   )

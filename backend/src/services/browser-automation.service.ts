@@ -416,7 +416,7 @@ export class BrowserAutomationService {
       // 输入问题
       await page.type(inputSelector, finalQuestion, { delay: 50 });
       await new Promise(resolve => setTimeout(resolve, 500));
-
+      console.log('提交===================>', submitSelector);
       // 提交问题
       await page.click(submitSelector);
       

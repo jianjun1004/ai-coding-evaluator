@@ -12,6 +12,9 @@ import {
   Bot,
   Settings,
   Database,
+  MessageSquare,
+  Plus,
+  Trash2,
   ChevronRight,
   ChevronLeft,
   Save,
@@ -40,6 +43,11 @@ export default function Step3Config({
   const [loading, setLoading] = useState(false)
   const [taskName, setTaskName] = useState(data.name || '')
   const [taskDescription, setTaskDescription] = useState(data.description || '')
+  
+  // 手动添加问题相关状态
+  const [newQuestion, setNewQuestion] = useState('')
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [questions, setQuestions] = useState(data.questions || [])
 
   // 飞书集成配置
   const [feishuConfig, setFeishuConfig] = useState({
@@ -56,6 +64,49 @@ export default function Step3Config({
       : (data.aiProductIds || []).filter(id => id !== productId)
     
     onDataChange({ ...data, aiProductIds: newProducts })
+  }
+
+  // 添加手动问题
+  const handleAddQuestion = () => {
+    if (!newQuestion.trim()) {
+      toast({
+        title: "验证失败",
+        description: "请输入问题内容",
+        variant: "destructive"
+      })
+      return
+    }
+
+    const question = {
+      id: `manual_${Date.now()}`,
+      content: newQuestion.trim(),
+      type: '手动添加',
+      isGenerated: false,
+      isCustom: true
+    }
+
+    const updatedQuestions = [...questions, question]
+    setQuestions(updatedQuestions)
+    onDataChange({ ...data, questions: updatedQuestions })
+    setNewQuestion('')
+    setShowAddForm(false)
+
+    toast({
+      title: "添加成功",
+      description: "问题已添加到列表",
+    })
+  }
+
+  // 删除问题
+  const handleDeleteQuestion = (questionId) => {
+    const updatedQuestions = questions.filter(q => q.id !== questionId)
+    setQuestions(updatedQuestions)
+    onDataChange({ ...data, questions: updatedQuestions })
+
+    toast({
+      title: "删除成功",
+      description: "问题已从列表中删除",
+    })
   }
 
   // 验证表单
@@ -344,11 +395,11 @@ export default function Step3Config({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">第三步：配置AI产品和系统设置</h2>
-          <p className="text-muted-foreground">选择AI产品并配置系统设置</p>
+          <h2 className="text-2xl font-bold">第二步：配置AI产品和系统设置</h2>
+          <p className="text-muted-foreground">选择AI产品并配置系统设置，管理评测问题</p>
         </div>
         <div className="flex items-center space-x-2">
-          <Badge variant="secondary">步骤 3/3</Badge>
+          <Badge variant="secondary">步骤 2/2</Badge>
         </div>
       </div>
 
@@ -415,6 +466,115 @@ export default function Step3Config({
                   </div>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 问题管理 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <MessageSquare className="h-5 w-5" />
+                <span>问题管理</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Badge variant="outline">{questions.length} 个问题</Badge>
+              </div>
+            </CardTitle>
+            <CardDescription>
+              查看和管理评测问题，支持手动添加新问题
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* 显示从前面步骤传递的问题 */}
+            {questions.length > 0 && (
+              <div className="space-y-3">
+                <Label>已配置的问题</Label>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {questions.map((question, index) => (
+                    <div
+                      key={question.id}
+                      className="p-3 border rounded-lg flex items-start justify-between space-x-3"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-1">
+                          <span className="text-sm font-medium text-muted-foreground">
+                            {index + 1}.
+                          </span>
+                          {question.isGenerated && (
+                            <Badge variant="secondary" className="text-xs">
+                              自动生成
+                            </Badge>
+                          )}
+                          {question.isCustom && (
+                            <Badge variant="outline" className="text-xs">
+                              手动添加
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm">{question.content}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDeleteQuestion(question.id)}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 手动添加问题 */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>手动添加问题</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAddForm(!showAddForm)}
+                >
+                  {showAddForm ? '取消' : '添加问题'}
+                </Button>
+              </div>
+              
+              {showAddForm && (
+                <div className="p-4 border rounded-lg space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="newQuestion">问题内容</Label>
+                    <Textarea
+                      id="newQuestion"
+                      placeholder="输入要添加的问题内容"
+                      value={newQuestion}
+                      onChange={(e) => setNewQuestion(e.target.value)}
+                      rows={3}
+                    />
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      size="sm"
+                      onClick={handleAddQuestion}
+                      disabled={!newQuestion.trim()}
+                    >
+                      添加问题
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setShowAddForm(false)
+                        setNewQuestion('')
+                      }}
+                    >
+                      取消
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
