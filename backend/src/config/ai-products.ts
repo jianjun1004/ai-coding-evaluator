@@ -14,8 +14,8 @@ export const AI_PRODUCTS: AIProduct[] = [
       selectors: {
         modeSelector: '[data-testid="skill_bar_button_16"]', // AI编程按钮
         inputField: '[data-slate-editor="true"]', // Slate.js富文本编辑器
-        submitButton: 'button[type="button"]',
-        responseArea: '#flow-end-msg-send'
+        submitButton: '#flow-end-msg-send, [data-testid="chat_input_send_button"], button[aria-label="发送"]',
+        responseArea: '.chat-message, .message-content, [data-testid="chat_message"]'
       },
       waitConditions: {
         pageLoad: 5000,

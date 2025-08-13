@@ -81,7 +81,7 @@ export class TaskSchedulerService {
     
     try {
       // 调试日志
-      log.info('Starting executeEvaluationTask', {
+      log.info('开始执行评测任务', {
         taskId: task.id,
         taskName: task.name,
         hasAiProducts: !!task.aiProducts,
@@ -130,14 +130,14 @@ export class TaskSchedulerService {
       this.runningTasks.set(task.id, progressObject);
       
       // 添加任务添加到runningTasks的调试日志
-      log.info('Task added to runningTasks', {
+      log.info('任务已添加到运行任务列表', {
         taskId: task.id,
         totalSteps,
         runningTasksSize: this.runningTasks.size,
         progressObject
       });
 
-      log.info('Starting evaluation task', {
+      log.info('开始评测任务', {
         taskId: task.id,
         aiProducts: task.aiProducts.length,
         questionTypes: task.questionTypes.length
@@ -180,7 +180,7 @@ export class TaskSchedulerService {
         progress.lastUpdated = new Date();
       }
 
-      log.info('Evaluation task completed successfully', {
+      log.info('评测任务成功完成', {
         taskId: task.id,
         duration,
         totalQuestions: stats.totalQuestions,
@@ -300,15 +300,128 @@ export class TaskSchedulerService {
     try {
       let questions: Question[] = [];
       
+      // 添加调试日志，查看问题类型匹配过程
+      log.info('处理问题类型', {
+        sessionId: session.id,
+        questionType,
+        totalQuestions: task.questions?.length || 0,
+        availableQuestionTypes: task.questions?.map(q => q.type) || [],
+        taskQuestionTypes: task.questionTypes || []
+      });
+      
       // 优先使用用户提供的问题内容
       if (task.questions && task.questions.length > 0) {
-        // 过滤出当前问题类型的问题
-        questions = task.questions.filter(q => q.type === questionType);
+        // 改进问题类型匹配逻辑：支持多种匹配方式
+        questions = task.questions.filter(q => {
+          // 完全匹配
+          if (q.type === questionType) {
+            return true;
+          }
+          
+          // 部分匹配：检查问题类型是否包含当前类型的关键词
+          if (typeof q.type === 'string' && typeof questionType === 'string') {
+            const questionTypeLower = questionType.toLowerCase();
+            const qTypeLower = q.type.toLowerCase();
+            
+            // 检查是否包含关键词匹配
+            if (qTypeLower.includes(questionTypeLower) || questionTypeLower.includes(qTypeLower)) {
+              return true;
+            }
+            
+            // 特殊映射匹配
+            const typeMapping: { [key: string]: string[] } = {
+              'learning': ['学习编程', '学习', '基础'],
+              'project': ['项目开发', '项目', '开发'],
+              'debugging': ['调试问题', '调试', '错误'],
+              'best_practices': ['最佳实践', '规范', '实践'],
+              'performance': ['性能优化', '性能', '优化']
+            };
+            
+            // 检查映射匹配
+            for (const [key, values] of Object.entries(typeMapping)) {
+              if (key === questionType && values.some(v => qTypeLower.includes(v))) {
+                return true;
+              }
+            }
+            
+            // 新增：手动添加问题的特殊处理
+            // 将"手动添加"类型的问题映射到"编程问题"类型
+            if (q.type === '手动添加' && questionType === '编程问题') {
+              return true;
+            }
+            
+            // 新增：反向映射，支持多种问题类型
+            const reverseTypeMapping: { [key: string]: string[] } = {
+              '编程问题': ['手动添加', '编程', '代码', '开发'],
+              '学习编程': ['学习', '基础', '入门'],
+              '项目开发': ['项目', '开发', '实践'],
+              '调试问题': ['调试', '错误', '问题解决'],
+              '最佳实践': ['规范', '实践', '标准'],
+              '性能优化': ['性能', '优化', '效率']
+            };
+            
+            // 检查反向映射匹配
+            for (const [key, values] of Object.entries(reverseTypeMapping)) {
+              if (key === questionType && values.some(v => qTypeLower.includes(v))) {
+                return true;
+              }
+            }
+          }
+          
+          return false;
+        });
+        
+        log.info('问题类型匹配结果', {
+          sessionId: session.id,
+          questionType,
+          matchedQuestionsCount: questions.length,
+          matchedQuestions: questions.map(q => ({ id: q.id, type: q.type, content: q.content.substring(0, 50) + '...' })),
+          // 新增：详细的匹配过程日志
+          matchingDetails: {
+            totalAvailableQuestions: task.questions?.length || 0,
+            availableQuestionTypes: task.questions?.map(q => q.type) || [],
+            appliedMappings: questions.length > 0 ? 'Successfully applied type mappings' : 'No mappings applied'
+          }
+        });
       }
       
-      // 如果没有用户提供的问题，则结束
+      // 如果没有用户提供的问题，记录详细信息并尝试生成问题
       if (questions.length === 0) {
-        return;
+        log.warn('No questions matched for question type', {
+          sessionId: session.id,
+          questionType,
+          availableQuestions: task.questions?.map(q => ({ type: q.type, content: q.content.substring(0, 50) + '...' })) || [],
+          taskQuestionTypes: task.questionTypes || []
+        });
+        
+                 // 尝试生成问题而不是直接返回
+         try {
+           log.info('尝试为类型生成问题', { questionType });
+           const generatedQuestions = await this.questionGenerator.generateQuestionBatch(
+             task.userProfile,
+             task.programmingLanguage,
+             [questionType]
+           );
+          
+          if (generatedQuestions && generatedQuestions.length > 0) {
+            questions = generatedQuestions;
+            log.info('问题生成成功', {
+              sessionId: session.id,
+              questionType,
+              generatedCount: questions.length
+            });
+          } else {
+            log.warn('Failed to generate questions, skipping question type', { questionType });
+            return;
+          }
+        } catch (genError: any) {
+          log.error('Failed to generate questions', {
+            sessionId: session.id,
+            questionType,
+            error: genError?.message || 'Unknown error'
+          });
+          return;
+        }
       }
       
       // 处理问题数组
@@ -317,7 +430,6 @@ export class TaskSchedulerService {
         
         // 获取AI回答
         const product = AI_PRODUCTS.find(p => p.id === session.productId);
-        console.log('product=====================================>', product);
         if (!product) {
           throw new Error(`Product not found: ${session.productId}`);
         }
@@ -602,7 +714,7 @@ export class TaskSchedulerService {
    */
   getTaskProgress(taskId: string): TaskProgress | null {
     // 添加调试日志
-    log.info('getTaskProgress called in TaskSchedulerService', {
+         log.info('在TaskSchedulerService中调用getTaskProgress', {
       taskId,
       runningTasksSize: this.runningTasks.size,
       runningTasksKeys: Array.from(this.runningTasks.keys())
@@ -610,14 +722,14 @@ export class TaskSchedulerService {
     
     const progress = this.runningTasks.get(taskId);
     if (progress) {
-      log.info('Found progress for task', { taskId, progress });
+             log.info('找到任务进度', { taskId, progress });
       return progress;
     }
     
     // 如果任务不在运行中，尝试从内存存储中获取已完成的任务信息
     // 这里可以扩展为从持久化存储中查询历史任务状态
     // 目前返回null，表示任务不存在或已完成
-    log.info('No progress found for task', { taskId });
+         log.info('未找到任务进度', { taskId });
     return null;
   }
 
@@ -652,7 +764,7 @@ export class TaskSchedulerService {
       
       this.runningTasks.delete(taskId);
       
-      log.info('Task cancelled', { taskId });
+             log.info('任务已取消', { taskId });
     } catch (error) {
       log.error('Failed to cancel task', { taskId, error });
       throw error;
@@ -665,13 +777,13 @@ export class TaskSchedulerService {
   scheduleTask(taskId: string, cronExpression: string, task: EvaluationTask): void {
     try {
       const scheduledTask = cron.schedule(cronExpression, async () => {
-        log.info('Executing scheduled task', { taskId, cronExpression });
+                 log.info('执行定时任务', { taskId, cronExpression });
         await this.executeEvaluationTask(task);
       });
       
       this.scheduledTasks.set(taskId, scheduledTask);
       
-      log.info('Task scheduled successfully', { taskId, cronExpression });
+             log.info('任务调度成功', { taskId, cronExpression });
     } catch (error: any) {
       log.error('Failed to schedule task', { taskId, cronExpression, error: error?.message || 'Unknown error' });
       throw error;
@@ -686,7 +798,7 @@ export class TaskSchedulerService {
     if (scheduledTask) {
       scheduledTask.stop();
       this.scheduledTasks.delete(taskId);
-      log.info('Scheduled task cancelled', { taskId });
+             log.info('定时任务已取消', { taskId });
     }
   }
 
@@ -710,7 +822,7 @@ export class TaskSchedulerService {
     // 清理浏览器资源
     await this.browserAutomation.cleanup();
     
-    log.info('Task scheduler cleanup completed');
+         log.info('任务调度器清理完成');
   }
 }
 

@@ -93,7 +93,7 @@ export class FeishuIntegrationService {
       // 提前5分钟过期，确保token有效性
       this.tokenExpiry = Date.now() + (tokenData.expires_in - 300) * 1000;
 
-      log.info('Feishu access token obtained successfully');
+      log.info('飞书访问令牌获取成功');
       return this.accessToken;
     } catch (error) {
       log.error('Failed to get Feishu access token', { error });
@@ -161,7 +161,7 @@ export class FeishuIntegrationService {
 
       const recordId = response.data.data.record.record_id;
       
-      log.info('Evaluation record written successfully', {
+      log.info('评测记录写入成功', {
         recordId,
         evaluationId: record.evaluationId,
         productName: record.productName
@@ -205,7 +205,7 @@ export class FeishuIntegrationService {
         const batchRecordIds = response.data.data.records.map((r: any) => r.record_id);
         recordIds.push(...batchRecordIds);
 
-        log.info('Batch evaluation records written successfully', {
+        log.info('批量评测记录写入成功', {
           batchSize: batch.length,
           totalWritten: recordIds.length
         });
@@ -241,7 +241,7 @@ export class FeishuIntegrationService {
         throw new Error(`Failed to update record: ${response.data.msg}`);
       }
 
-      log.info('Evaluation record updated successfully', { recordId });
+      log.info('评测记录更新成功', { recordId });
     } catch (error) {
       log.error('Failed to update evaluation record', { error, recordId });
       throw error;
@@ -290,7 +290,7 @@ export class FeishuIntegrationService {
         throw new Error(`Failed to delete record: ${response.data.msg}`);
       }
 
-      log.info('Evaluation record deleted successfully', { recordId });
+      log.info('评测记录删除成功', { recordId });
     } catch (error) {
       log.error('Failed to delete evaluation record', { error, recordId });
       throw error;
@@ -337,7 +337,7 @@ export class FeishuIntegrationService {
     try {
       await this.getAccessToken();
       await this.getTableInfo();
-      log.info('Feishu connection test successful');
+      log.info('飞书连接测试成功');
       return true;
     } catch (error) {
       log.error('Feishu connection test failed', { error });
@@ -402,7 +402,7 @@ export class FeishuIntegrationService {
         pageToken = response.data.data.page_token;
       }
 
-      log.info('Evaluation data exported successfully', { totalRecords: allRecords.length });
+      log.info('评测数据导出成功', { totalRecords: allRecords.length });
       return allRecords;
     } catch (error) {
       log.error('Failed to export evaluation data', { error });

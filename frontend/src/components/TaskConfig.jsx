@@ -113,26 +113,34 @@ export default function TaskConfig() {
       <div className="mb-8">
         <div className="flex items-center space-x-4 mb-4">
           {steps.map((step) => (
-            <Button
-              key={step.id}
-              variant={currentStep === step.id ? "default" : "outline"}
-              size="sm"
-              onClick={() => setCurrentStep(step.id)}
-              className="flex items-center space-x-2"
-            >
-              <div className={`flex items-center justify-center w-6 h-6 rounded-full border-2 ${
-                currentStep === step.id 
-                  ? 'bg-primary-foreground border-primary-foreground text-primary' 
-                  : 'border-muted-foreground text-muted-foreground'
-              }`}>
-                {currentStep === step.id ? (
-                  <CheckCircle className="h-4 w-4" />
-                ) : (
-                  <span className="text-xs font-medium">{step.id}</span>
-                )}
-              </div>
-              <span className="text-sm font-medium">{step.name}</span>
-            </Button>
+                                      <Button
+               key={step.id}
+               variant="ghost"
+               size="sm"
+               onClick={() => setCurrentStep(step.id)}
+               className={`flex items-center space-x-2 transition-all duration-200 ${
+                 currentStep === step.id 
+                   ? 'bg-blue-50 text-blue-700' 
+                   : 'text-gray-600 hover:bg-gray-50'
+               }`}
+             >
+               <div className={`flex items-center justify-center w-6 h-6 rounded-full ${
+                 currentStep === step.id 
+                   ? 'bg-blue-600 text-white' 
+                   : 'bg-gray-100 text-gray-600'
+               }`}>
+                 {currentStep === step.id ? (
+                   <CheckCircle className="h-4 w-4" />
+                 ) : (
+                   <span className="text-xs font-medium">{step.id}</span>
+                 )}
+               </div>
+               <span className={`text-sm font-medium ${
+                 currentStep === step.id ? 'text-blue-700' : 'text-gray-600'
+               }`}>
+                 {step.name}
+               </span>
+             </Button>
           ))}
         </div>
         

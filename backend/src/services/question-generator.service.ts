@@ -133,7 +133,7 @@ export class QuestionGeneratorService {
         createdAt: new Date()
       };
 
-      log.info('Generated follow-up question', {
+      log.info('生成追问成功', {
         questionId: followUpQuestion.id,
         followUpLevel: followUpQuestion.followUpLevel,
         context: context.userProfile

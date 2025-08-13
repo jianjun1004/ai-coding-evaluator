@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { 
   Bot,
   Settings,
@@ -41,13 +41,19 @@ export default function Step3Config({
 }) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
-  const [taskName, setTaskName] = useState(data.name || '')
-  const [taskDescription, setTaskDescription] = useState(data.description || '')
   
   // 手动添加问题相关状态
   const [newQuestion, setNewQuestion] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
   const [questions, setQuestions] = useState(data.questions || [])
+
+  // 添加调试日志，查看接收到的数据
+  console.log('Step3Config received data:', {
+    hasQuestions: !!data.questions,
+    questionsLength: data.questions?.length || 0,
+    questions: data.questions?.map(q => ({ id: q.id, type: q.type, content: q.content?.substring(0, 50) + '...' })) || [],
+    localQuestionsLength: questions.length
+  });
 
   // 飞书集成配置
   const [feishuConfig, setFeishuConfig] = useState({
@@ -80,14 +86,24 @@ export default function Step3Config({
     const question = {
       id: `manual_${Date.now()}`,
       content: newQuestion.trim(),
-      type: '手动添加',
+      type: '编程问题',
       isGenerated: false,
       isCustom: true
     }
 
     const updatedQuestions = [...questions, question]
     setQuestions(updatedQuestions)
+    
+    // 同步到父组件
     onDataChange({ ...data, questions: updatedQuestions })
+    
+    // 添加调试日志
+    console.log('问题已添加:', {
+      newQuestion: question,
+      totalQuestions: updatedQuestions.length,
+      updatedQuestions: updatedQuestions.map(q => ({ id: q.id, type: q.type, content: q.content.substring(0, 50) + '...' }))
+    });
+    
     setNewQuestion('')
     setShowAddForm(false)
 
@@ -101,7 +117,16 @@ export default function Step3Config({
   const handleDeleteQuestion = (questionId) => {
     const updatedQuestions = questions.filter(q => q.id !== questionId)
     setQuestions(updatedQuestions)
+    
+    // 同步到父组件
     onDataChange({ ...data, questions: updatedQuestions })
+    
+    // 添加调试日志
+    console.log('问题已删除:', {
+      deletedQuestionId: questionId,
+      totalQuestions: updatedQuestions.length,
+      remainingQuestions: updatedQuestions.map(q => ({ id: q.id, type: q.type, content: q.content.substring(0, 50) + '...' }))
+    });
 
     toast({
       title: "删除成功",
@@ -111,7 +136,6 @@ export default function Step3Config({
 
   // 验证表单
   const validateForm = () => {
-    if (!taskName.trim()) return false
     if (!data.aiProductIds || data.aiProductIds.length === 0) return false
     if (feishuConfig.enabled) {
       if (!feishuConfig.appId || !feishuConfig.appSecret || !feishuConfig.tableId) return false
@@ -150,67 +174,6 @@ export default function Step3Config({
     }
   }
 
-  // 保存任务
-  const handleSave = async () => {
-    if (!validateForm()) {
-      toast({
-        title: "验证失败",
-        description: "请填写完整的任务信息",
-        variant: "destructive"
-      })
-      return
-    }
-
-    setLoading(true)
-    try {
-      // 准备完整的任务数据
-      const taskData = {
-        ...data,
-        name: taskName,
-        description: taskDescription,
-        feishuConfig: feishuConfig.enabled ? feishuConfig : null
-      }
-
-      // 调用简化的API执行任务
-      const response = await fetch('/api/tasks/execute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(taskData)
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || `HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json()
-      
-      if (!result.success) {
-        throw new Error(result.error?.message || '执行任务失败')
-      }
-      
-      toast({
-        title: "保存成功",
-        description: "任务配置已保存",
-      })
-
-      // 调用父组件的提交函数
-      if (onSubmit) {
-        onSubmit(taskData)
-      }
-    } catch (error) {
-      toast({
-        title: "保存失败",
-        description: "任务保存失败，请重试",
-        variant: "destructive"
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
-
   // 立即执行任务
   const handleExecute = async () => {
     if (!validateForm()) {
@@ -227,10 +190,21 @@ export default function Step3Config({
       // 准备完整的任务数据
       const taskData = {
         ...data,
-        name: taskName,
-        description: taskDescription,
+        // 使用本地的questions状态，确保包含最新的问题列表
+        questions: questions,
+        // 添加后端要求的必需字段
+        name: `Task-${Date.now()}`, // 自动生成任务名称
+        questionTypes: data.questionTypes || ['编程问题'], // 默认问题类型
         feishuConfig: feishuConfig.enabled ? feishuConfig : null
       }
+
+      // 添加调试日志，查看发送的数据
+      console.log('准备发送的任务数据:', {
+        totalQuestions: questions.length,
+        questions: questions.map(q => ({ id: q.id, type: q.type, content: q.content.substring(0, 50) + '...' })),
+        questionTypes: taskData.questionTypes,
+        aiProductIds: taskData.aiProductIds
+      });
 
       // 调用真实的API执行任务
       const response = await fetch('/api/tasks/execute', {
@@ -379,7 +353,7 @@ export default function Step3Config({
           })
         }
       }
-    }, 3000)
+    }, 20000)
 
     // 5分钟后自动停止查询（防止无限查询）
     setTimeout(() => {
@@ -404,74 +378,9 @@ export default function Step3Config({
       </div>
 
       <div className="grid gap-6">
-        {/* 任务基本信息 */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Settings className="h-5 w-5" />
-              <span>任务信息</span>
-            </CardTitle>
-            <CardDescription>
-              设置任务的基本信息，包括名称和描述
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="taskName">任务名称</Label>
-              <Input
-                id="taskName"
-                placeholder="输入任务名称"
-                value={taskName}
-                onChange={(e) => setTaskName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="taskDescription">任务描述</Label>
-              <Textarea
-                id="taskDescription"
-                placeholder="输入任务描述"
-                value={taskDescription}
-                onChange={(e) => setTaskDescription(e.target.value)}
-                rows={3}
-              />
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* AI产品选择 */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Bot className="h-5 w-5" />
-              <span>AI产品选择</span>
-            </CardTitle>
-            <CardDescription>
-              选择要评测的AI产品，系统将对这些产品进行自动化评测
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3">
-              {mockAIProducts.map((product) => (
-                <div key={product.id} className="flex items-center space-x-3">
-                  <Checkbox
-                    id={product.id}
-                    checked={(data.aiProductIds || []).includes(product.id)}
-                    onCheckedChange={(checked) => handleAIProductChange(product.id, checked)}
-                  />
-                  <div className="flex-1">
-                    <Label htmlFor={product.id} className="font-medium cursor-pointer">
-                      {product.name}
-                    </Label>
-                    <p className="text-sm text-muted-foreground">{product.description}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* 问题管理 */}
-        <Card>
+         {/* 问题管理 */}
+         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -502,16 +411,6 @@ export default function Step3Config({
                           <span className="text-sm font-medium text-muted-foreground">
                             {index + 1}.
                           </span>
-                          {question.isGenerated && (
-                            <Badge variant="secondary" className="text-xs">
-                              自动生成
-                            </Badge>
-                          )}
-                          {question.isCustom && (
-                            <Badge variant="outline" className="text-xs">
-                              手动添加
-                            </Badge>
-                          )}
                         </div>
                         <p className="text-sm">{question.content}</p>
                       </div>
@@ -519,7 +418,7 @@ export default function Step3Config({
                         size="sm"
                         variant="ghost"
                         onClick={() => handleDeleteQuestion(question.id)}
-                        className="text-destructive hover:text-destructive"
+                        className="text-destructive hover:text-destructive hover:bg-red-50 transition-colors duration-200 px-3 py-2"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -532,11 +431,11 @@ export default function Step3Config({
             {/* 手动添加问题 */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label>手动添加问题</Label>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setShowAddForm(!showAddForm)}
+                  className="px-4 py-2 transition-colors duration-200 hover:bg-gray-50"
                 >
                   {showAddForm ? '取消' : '添加问题'}
                 </Button>
@@ -559,6 +458,7 @@ export default function Step3Config({
                       size="sm"
                       onClick={handleAddQuestion}
                       disabled={!newQuestion.trim()}
+                      className="px-4 py-2 transition-colors duration-200"
                     >
                       添加问题
                     </Button>
@@ -569,12 +469,46 @@ export default function Step3Config({
                         setShowAddForm(false)
                         setNewQuestion('')
                       }}
+                      className="px-4 py-2 transition-colors duration-200 hover:bg-gray-50"
                     >
                       取消
                     </Button>
                   </div>
                 </div>
               )}
+            </div>
+          </CardContent>
+        </Card>
+
+
+        {/* AI产品选择 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Bot className="h-5 w-5" />
+              <span>AI产品选择</span>
+            </CardTitle>
+            <CardDescription>
+              选择要评测的AI产品，系统将对这些产品进行自动化评测
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3">
+              {mockAIProducts.map((product) => (
+                <div key={product.id} className="flex items-center space-x-3">
+                  <Checkbox
+                    id={product.id}
+                    checked={(data.aiProductIds || []).includes(product.id)}
+                    onCheckedChange={(checked) => handleAIProductChange(product.id, checked)}
+                  />
+                  <div className="flex-1">
+                    <Label htmlFor={product.id} className="font-medium cursor-pointer">
+                      {product.name}
+                    </Label>
+                    <p className="text-sm text-muted-foreground">{product.description}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -655,6 +589,7 @@ export default function Step3Config({
                       variant="outline" 
                       onClick={testFeishuConnection}
                       disabled={loading || !feishuConfig.appId || !feishuConfig.appSecret || !feishuConfig.tableId}
+                      className="px-4 py-2 transition-colors duration-200 hover:bg-gray-50"
                     >
                       测试连接
                     </Button>
@@ -671,6 +606,7 @@ export default function Step3Config({
         <Button
           variant="outline"
           onClick={onPrevious}
+          className="px-4 py-2 transition-colors duration-200 hover:bg-gray-50"
         >
           <ChevronLeft className="h-4 w-4 mr-2" />
           上一步
@@ -678,17 +614,9 @@ export default function Step3Config({
         
         <div className="flex items-center space-x-3">
           <Button
-            variant="outline"
-            onClick={handleSave}
-            disabled={loading || !validateForm()}
-          >
-            <Save className="h-4 w-4 mr-2" />
-            保存任务
-          </Button>
-          
-          <Button
             onClick={handleExecute}
             disabled={loading || !validateForm()}
+            className="px-4 py-2 transition-colors duration-200 hover:bg-gray-50"
           >
             <Play className="h-4 w-4 mr-2" />
             立即执行

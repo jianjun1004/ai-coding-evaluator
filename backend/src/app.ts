@@ -136,7 +136,7 @@ class App {
       
       // 启动服务器
       this.app.listen(port, '0.0.0.0', () => {
-        log.info(`Server started on port ${port}`);
+        log.info(`服务器已启动，端口：${port}`);
         console.log(`🚀 AI Coding Evaluator API is running on http://0.0.0.0:${port}`);
         console.log(`📖 API Documentation: http://0.0.0.0:${port}/`);
         console.log(`🏥 Health Check: http://0.0.0.0:${port}/health`);
@@ -166,12 +166,12 @@ class App {
       throw new Error(errorMessage);
     }
 
-    log.info('Environment validation passed');
+          log.info('环境验证通过');
   }
 
   public async shutdown(): Promise<void> {
     try {
-      log.info('Server shutdown completed');
+      log.info('服务器关闭完成');
     } catch (error) {
       log.error('Error during shutdown', { error });
     }
@@ -183,13 +183,13 @@ const app = new App();
 
 // 优雅关闭
 process.on('SIGTERM', async () => {
-  log.info('SIGTERM received, shutting down gracefully');
+      log.info('收到SIGTERM信号，正在优雅关闭');
   await app.shutdown();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  log.info('SIGINT received, shutting down gracefully');
+      log.info('收到SIGINT信号，正在优雅关闭');
   await app.shutdown();
   process.exit(0);
 });

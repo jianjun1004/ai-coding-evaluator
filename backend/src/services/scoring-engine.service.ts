@@ -54,7 +54,7 @@ export class ScoringEngineService {
         timestamp: new Date()
       };
 
-      log.info('Response scored successfully', {
+      log.info('响应评分成功', {
         score,
         accuracy: analysis.accuracy,
         completeness: analysis.completeness,

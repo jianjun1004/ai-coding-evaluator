@@ -91,7 +91,7 @@ export class BrowserAutomationService {
         }
       });
 
-      log.info('Browser initialized successfully');
+      log.info('浏览器初始化成功');
     } catch (error) {
       log.error('Failed to initialize browser', { error });
       throw error;
@@ -149,7 +149,7 @@ export class BrowserAutomationService {
         duration
       };
 
-      log.info('Successfully interacted with AI product', {
+      log.info('成功与AI产品交互', {
         productId: product.id,
         duration,
         responseLength: responseContent.length
@@ -205,7 +205,7 @@ export class BrowserAutomationService {
       // 等待页面完全加载
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      log.info('Navigated to product page', { productId: product.id, url: product.url });
+      log.info('已导航到产品页面', { productId: product.id, url: product.url });
     } catch (error: any) {
       log.error('Failed to navigate to product page', {
         productId: product.id,
@@ -238,7 +238,7 @@ export class BrowserAutomationService {
         await this.selectMode(page, product, config.mode);
       }
 
-      log.info('Product configured successfully', {
+      log.info('产品配置成功', {
         productId: product.id,
         model: config.model,
         mode: config.mode
@@ -270,7 +270,7 @@ export class BrowserAutomationService {
           ['[data-testid="ai-coding-button"]', '.ai-coding-btn', '[aria-label*="AI编程"]']
         );
         
-        log.info('Attempting to click AI coding button', {
+        log.info('尝试点击AI编程按钮', {
           productId: product.id,
           selector: aiCodingSelector
         });
@@ -279,7 +279,7 @@ export class BrowserAutomationService {
         await page.click(aiCodingSelector);
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        log.info('Successfully clicked AI coding button', { productId: product.id });
+        log.info('成功点击AI编程按钮', { productId: product.id });
       } else if (instruction.includes('深度思考')) {
         // 开启深度思考 - 优先使用产品配置的选择器
         const deepThinkSelector = this.getSelectorWithFallback(
@@ -288,7 +288,7 @@ export class BrowserAutomationService {
           ['[data-testid="deep-think-toggle"]', '.deep-think-toggle', '[aria-label*="深度思考"]']
         );
         
-        log.info('Attempting to toggle deep think mode', {
+        log.info('尝试切换深度思考模式', {
           productId: product.id,
           selector: deepThinkSelector
         });
@@ -304,9 +304,9 @@ export class BrowserAutomationService {
           if (!isEnabled) {
             await page.click(deepThinkSelector);
             await new Promise(resolve => setTimeout(resolve, 500));
-            log.info('Successfully enabled deep think mode', { productId: product.id });
+            log.info('成功启用深度思考模式', { productId: product.id });
           } else {
-            log.info('Deep think mode already enabled', { productId: product.id });
+                          log.info('深度思考模式已启用', { productId: product.id });
           }
         } catch (e) {
           log.warn('Deep think toggle not found or already enabled', { 
@@ -416,14 +416,10 @@ export class BrowserAutomationService {
       // 输入问题
       await page.type(inputSelector, finalQuestion, { delay: 50 });
       await new Promise(resolve => setTimeout(resolve, 500));
-      console.log('提交===================>', submitSelector);
+      
       // 提交问题
       await page.click(submitSelector);
       
-      log.info('Question submitted successfully', {
-        productId: product.id,
-        questionLength: question.length
-      });
     } catch (error: any) {
       log.error('提交问题============》', {
         productId: product.id,
@@ -486,7 +482,7 @@ export class BrowserAutomationService {
         throw new Error('Empty response received');
       }
 
-      log.info('Response received successfully', {
+      log.info('成功接收响应', {
         productId: product.id,
         responseLength: responseContent.length
       });
@@ -515,7 +511,7 @@ export class BrowserAutomationService {
         fullPage: true
       });
 
-      log.info('Screenshot saved', { productId, filepath });
+      log.info('截图已保存', { productId, filepath });
       return filepath;
     } catch (error: any) {
       log.error('Failed to save screenshot', {
@@ -581,7 +577,7 @@ export class BrowserAutomationService {
         await this.browser.close();
         this.browser = null;
         this.pages.clear();
-        log.info('Browser closed successfully');
+        log.info('浏览器已成功关闭');
       }
     } catch (error) {
       log.error('Failed to close browser', { error });

@@ -152,12 +152,12 @@ export class TaskController {
       } = req.body;
       console.log('========',req.body)
       // 验证输入
-      if (!name || !aiProductIds || !questionTypes) {
+      if (!aiProductIds || !questionTypes) {
         const response: APIResponse<null> = {
           success: false,
           error: {
             code: 'INVALID_INPUT',
-            message: 'Missing required fields'
+            message: 'AI products and question types are required'
           }
         };
         res.status(400).json(response);
@@ -213,8 +213,8 @@ export class TaskController {
       const taskId = this.memoryStorage.generateId();
       const task: EvaluationTask = {
         id: taskId,
-        name,
-        description: description || '',
+        name: `Task-${taskId}`,
+        description: '',
         userProfile: userProfile,
         programmingLanguage: programmingLanguage,
         aiProducts,
@@ -267,17 +267,9 @@ export class TaskController {
       // 从请求体获取任务数据
       const taskData = req.body;
       
-      // 添加详细的调试日志
-      log.info('executeTask called', {
-        method: req.method,
-        url: req.url,
-        body: taskData,
-        headers: req.headers
-      });
-      
       // 验证必要字段
       if (!taskData.name || !taskData.aiProductIds || !taskData.questionTypes) {
-        log.error('Missing required fields', {
+        log.error('缺少必填字段', {
           name: !!taskData.name,
           aiProductIds: !!taskData.aiProductIds,
           questionTypes: !!taskData.questionTypes,
@@ -288,7 +280,7 @@ export class TaskController {
           success: false,
           error: {
             code: 'INVALID_INPUT',
-            message: 'Missing required fields: name, aiProductIds, questionTypes'
+            message: '缺少必填字段: name, aiProductIds, questionTypes'
           }
         };
         res.status(400).json(response);
@@ -297,39 +289,39 @@ export class TaskController {
 
       // 验证问题内容（如果提供了具体问题）
       if (taskData.questions && Array.isArray(taskData.questions)) {
-        if (taskData.questions.length === 0) {
-          const response: APIResponse<null> = {
-            success: false,
-            error: {
-              code: 'INVALID_QUESTIONS',
-              message: 'Questions array cannot be empty if provided'
+        // 允许空的questions数组，因为问题可以在后端生成
+        if (taskData.questions.length > 0) {
+          // 验证每个问题都有必要字段
+          for (const question of taskData.questions) {
+            if (!question.content || !question.type) {
+              const response: APIResponse<null> = {
+                success: false,
+                error: {
+                  code: 'INVALID_QUESTION_FORMAT',
+                  message: '每个问题必须包含content和type字段。请检查问题格式是否正确。'
+                }
+              };
+              res.status(400).json(response);
+              return;
             }
-          };
-          res.status(400).json(response);
-          return;
-        }
-        
-        // 验证每个问题都有必要字段
-        for (const question of taskData.questions) {
-          if (!question.content || !question.type) {
-            const response: APIResponse<null> = {
-              success: false,
-              error: {
-                code: 'INVALID_QUESTION_FORMAT',
-                message: 'Each question must have content and type fields'
-              }
-            };
-            res.status(400).json(response);
-            return;
           }
+          
+          log.info('验证用户提供的问题', {
+            questionCount: taskData.questions.length,
+            questionTypes: taskData.questions.map((q: any) => q.type)
+          });
+        } else {
+          log.info('空字段');
         }
+      } else {
+        log.info('问题为空');
       }
 
       // 创建任务对象 - 确保包含所有必要字段
       const task = {
         id: 'current-task',
-        name: taskData.name,
-        description: taskData.description,
+        name: 'Auto-Generated Task',
+        description: 'Automatically generated evaluation task',
         // 确保aiProducts字段存在且格式正确
         aiProducts: taskData.aiProducts || taskData.aiProductIds?.map((id: string) => ({ id, name: `Product-${id}` })) || [],
         questionTypes: taskData.questionTypes || [],
@@ -342,21 +334,6 @@ export class TaskController {
         createdAt: new Date(),
         updatedAt: new Date()
       };
-
-      // 添加任务对象创建的调试日志
-      log.info('Task object created', {
-        taskId: task.id,
-        taskName: task.name,
-        hasAiProducts: !!task.aiProducts,
-        aiProductsLength: task.aiProducts?.length,
-        hasQuestionTypes: !!task.questionTypes,
-        questionTypesLength: task.questionTypes?.length,
-        hasUserProfile: !!task.userProfile,
-        hasProgrammingLanguage: !!task.programmingLanguage,
-        taskObject: task,
-        // 添加原始数据的调试信息
-        originalTaskData: taskData
-      });
 
       // 异步执行任务
       this.taskSchedulerService.executeEvaluationTask(task).catch(error => {
@@ -391,22 +368,9 @@ export class TaskController {
    */
   async getTaskProgress(req: Request, res: Response): Promise<void> {
     try {
-      // 添加调试日志
-      log.info('getTaskProgress called', {
-        method: req.method,
-        url: req.url,
-        query: req.query
-      });
       
       // 获取当前任务的进度
       const progress = this.taskSchedulerService.getTaskProgress('current-task');
-      
-      // 添加进度查询结果的调试日志
-      log.info('Progress query result', {
-        hasProgress: !!progress,
-        progressDetails: progress,
-        taskId: 'current-task'
-      });
       
       if (progress) {
         // 返回完整的进度信息
@@ -422,7 +386,6 @@ export class TaskController {
           }
         };
         
-        log.info('Returning progress data', { response });
         res.json(response);
       } else {
         // 没有任务在运行
@@ -435,7 +398,6 @@ export class TaskController {
           }
         };
         
-        log.info('No task running, returning default response', { response });
         res.json(response);
       }
     } catch (error: any) {
@@ -579,7 +541,7 @@ export class TaskController {
   async generateQuestions(req: Request, res: Response): Promise<void> {
     try {
       // 调试：打印请求信息
-      log.info('generateQuestions called', { 
+      log.info('调用generateQuestions', { 
         method: req.method, 
         url: req.url, 
         body: req.body,
